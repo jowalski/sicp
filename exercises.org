@@ -1,0 +1,333 @@
+#+FILETAGS: @personal
+#+LaTeX_HEADER: \newcommand{\mya}[2]{ ( A\, #1\, #2) }
+#+LaTeX_HEADER: \usepackage{forest}
+#+LaTeX_HEADER: \newcommand{\leaf}[3]{{(cc #1 #2)\\[-1ex]\scriptsize #3}}
+* Exercises for the Structure and Interpretation of Computer Languages
+** Chapter 1: Building Abstractions with Procedures
+*** 1.2 Procedures and the Processes They Generate
+#+LaTeX_HEADER: \newcommand{\mya}[2]{ ( A\, #1\, #2) }
+**** 1.2.1 Linear Recursion and Iteration
+
+*Linear recursion* - the length of the chain of deferred operations, as well as
+the amount of information needed to keep track of it, grows linearly with \(n\).
+
+*iterative process* - state can be summarized by a fixed number of state
+variables, together with a fixed rule that describes how they should be updated.
+
+[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::44][*Exercise 1.10*]]
+
+The following procedure computes a mathematical function called Ackermann’s
+function.
+
+#+begin_src scheme :session
+  (define (A x y)
+    (cond ((= y 0) 0)
+          ((= x 0)(* 2 y))
+          ((= y 1) 2)
+          (else (A (- x 1)
+                   (A x (- y 1))))))
+#+end_src
+
+What are the values of the following expressions?
+
+#+begin_src scheme
+(A 1 10)
+(A 2 4)
+(A 3 3)
+#+end_src
+
+Consider the following procedures, where A is the procedure defined above:
+
+#+begin_src scheme
+(define (f n) (A 0 n))
+(define (g n) (A 1 n))
+(define (h n) (A 2 n))
+(define (k n) (* 5 n n))
+#+end_src
+
+Give concise mathematical definitions for the functions computed by the
+procedures f, g, and h for positive integer values of n. For example, (k n)
+computes 5n 2.
+
+Answer:
+
+\[
+\begin{align}
+\mya{1}{x} &= \mya{0}{\mya{1}{(x - 1)}}   \\
+           &= 2 \times \mya{1}{(x - 1)}   \\
+\mya{1}{1} &= 2 \\
+\mya{1}{x} &= 2^{x}
+\end{align}
+\]
+
+Proof: \( \mya{1}{x} = 2 \times \mya{1}{(x - 1)} = 2 \times (2 ^{x - 1}) = 2
+^{x}. \qedhere \)
+
+\[
+\begin{align}
+\mya{2}{x} &= \mya{1}{\mya{2}{(x - 1)}} \\
+           &= 2^{\mya{2}{(x - 1)}} \\
+\mya{2}{1} &= 2 \\
+\{\mya{2}{x}\} &= \{2, 2^2, 2^4, 2^8, \dots \} \\
+           &= 2^{2^{x - 1}}
+\end{align}
+\]
+
+Proof:
+\[
+\begin{align}
+\mya{2}{x} &= 2^{\mya{2}{(x - 1)}} \\
+           &= 2^{2^{2^{x - 2}}} \\
+           &= 2^{2^{2^{x - 1} \times 2^{-1}}} \\
+           &= 2^{(4^{x - 1})^{1/2}} \\
+           &= 2^{2^{x - 1}}. \qedhere
+\end{align}
+\]
+**** 1.2.2 Tree Recursion
+
+*Example of tree recursion*: Counting Change
+#+begin_src scheme
+  (define (count-change amount)
+    (cc amount 5))
+
+  (define (cc amount kinds-of-coins)
+    (cond ((= amount 0) 1)
+          ((or (< amount 0) (= kinds-of-coins 0)) 0)
+          (else (+ (cc amount
+                       (- kinds-of-coins 1))
+                   (cc (- amount
+                          (first-denomination kinds-of-coins))
+                       kinds-of-coins)))))
+
+  (define (first-denomination kinds-of-coins)
+    (cond ((= kinds-of-coins 1) 1)
+          ((= kinds-of-coins 2) 5)
+          ((= kinds-of-coins 3) 10)
+          ((= kinds-of-coins 4) 25)
+          ((= kinds-of-coins 5) 50)))
+#+end_src
+
+*Exercise 1.11*
+
+A function f is defined by the rule that \(f(n) = n\) if \(n<3\) and \(f(n) = f(n - 1) + 2f(n - 2) + 3f(n - 3) \) if \(n \geq 3\). Write a procedure that computes \(f\) by means of a recursive process. Write a procedure that computes \(f\) by means of an iterative process.
+
+=recursive=
+
+a <- a + 2b + 3c
+b <- a
+c <- b
+
+#+begin_src scheme
+  (define (f n)
+    (cond ((< n 3) n)
+          (else (+ (f (- n 1))
+                   (* 2 (f (- n 2)))
+                   (* 3 (f (- n 3)))))))
+#+end_src
+
+=iterative=
+
+#+begin_src scheme
+  (define (fi n)
+    (f-iter 2 1 0 n))
+
+  (define (f-iter a b c count)
+    (if (= count 0)
+        c
+        (f-iter (+ a (* 2 b) (* 3 c)) a b
+                (- count 1))))
+#+end_src
+
+*Exercise 1.12*. The following pattern of numbers is called Pascal’s triangle. The numbers at the edge of the triangle are all 1, and each number inside the triangle is the sum of the two numbers above it. Write a procedure that computes elements of Pascal’s triangle by means of a recursive process.
+
+#+begin_src scheme
+  (define (pascal row column) ; the top is row 1,
+    (if (or (= column 1)      ; the left side is col 1
+            (= column row))
+        1
+        (+ (pascal (- row 1) column)
+           (pascal (- row 1) (- column 1)))))
+#+end_src
+
+*Exercise 1.13*. Prove that \(Fib(n)\) is the closest integer to \(\phi^{n} / \sqrt{5}\), where \(\phi = (1 + \sqrt{5}) / 2\). Hint: Let \(\psi = (1 - \sqrt{5})/2\). Use induction and the definition of the Fibonacci numbers (see section 1.2.2) to prove that \(Fib(n) = ( \phi^{n} - \psi^{n})/ \sqrt{5}\).
+
+_Proof_: \(Fib(1) = (\phi - \psi)/\sqrt{5} = \sqrt{5}/\sqrt{5} = 1\).
+
+Assume \(Fib(n) = (\phi^{n}-\psi^{n})/\sqrt{5}\).
+\[
+\begin{align}
+Fib(n + 1) &= Fib(n) + Fib(n-1) \\
+           &= (\phi^{n}-\psi^{n}+\phi^{n-1}-\psi^{n-1})/\sqrt{5} \\
+           &= ((\phi+1)\phi^{n-1} - (\psi+1) \psi^{n-1})/\sqrt{5} \\
+           &= ((\frac{3+\sqrt{5}}{2})\phi^{n} - (\frac{3-\sqrt{5}}{2})\psi^{n})/\sqrt{5} \\
+           &= (\phi^{2}\phi^{n-1} - \psi^{2}\psi^{n-1})/\sqrt{5} \\
+           &= (\phi^{n+1} - \psi^{n+1})/\sqrt{5}
+\end{align}
+\]
+**** 1.2.3 Orders of Growth
+*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::48][Order of Growth]]*
+
+\(R(n)\) has order of growth \(\Theta(f(n))\), written \(\R(n)=\Theta(f(n))\) (pronounced "theta of \(f(n)\)"), if there are positive constants \(k_{1}\) and \(k_{2}\) independent of \(n\) such that
+
+\[ k_{1} f(n) \leq R(n) \leq k_{2} f(n) \]
+
+for any sufficiently large value of \(n\).
+
+*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::49][Exercise 1.14]]*. Draw the tree illustrating the process generated by the src_scheme{count-change} procedure of section 1.2.2 in making change for 11 cents. What are the orders of growth of the space and number of steps used by this process as the amount to be changed increases?
+
+\[
+\begin{forest} for tree={align=center}
+[\leaf{11}{5}{4}
+ [\leaf{11}{4}{4}
+  [\leaf{11}{3}{4}
+   [\leaf{11}{2}{3}
+    [\leaf{11}{1}{1}
+     [\leaf{11}{0}{0}]
+     [\leaf{10}{1}{1}
+      [\leaf{10}{0}{0}]
+       [\dots
+        [\leaf{0}{1}{1}]]]]
+    [\leaf{6}{2}{2}
+     [\leaf{6}{1}{1}
+      [\dots [\leaf{0}{1}{1}]]]
+     [\leaf{1}{2}{1}
+      [\leaf{1}{1}{1}]
+      [\leaf{-4}{2}{0}]]]]
+   [\leaf{1}{3}{1}
+    [\dots [\leaf{0}{1}{1}]]
+    [\leaf{-9}{3}{0}]]]
+  [\leaf{-14}{4}{0}]]
+ [\leaf{-39}{5}{0}]]
+\end{forest}
+\]
+
+An upper bound on the order of growth is \( (n + 1) \times (k + 1)\), where \(n\) is the total amount and \(k\) is the kinds of change.
+
+Proof: We assert that all the possible argument pairs to the function that are called are integers \((i, j)\) with \(i = {0,\dots,n}\), \(j = {0,\dots,k}\), and each is called at most once. The first call is with \((n, k)\), thereafter each subsequent call either decreases the first argument or the second argument, but not both. So any given pair can be reached from a certain pair and prior operation: decrease \(i\) or decrease \(j\). ...
+
+*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::49][Exercise 1.15]]*. The sine of an angle (specified in radians) can be computed by making use of the approximation \(sin x ~= x \) if \(x\) is sufficiently small, and the trigonometric identity
+\[
+\sin r = 3 \sin \frac{r}{3} - 4 \sin^{3} \frac{r}{3}
+\]
+
+to reduce the size of the argument of \(\sin\). (For purposes of this exercise an angle is considered "sufficiently small" if its magnitude is not greater than 0.1 radians.) These ideas are incorporated in the following procedures:
+
+#+begin_src scheme :session sine
+  (define (cube x) (* x x x))
+  (define (p x) (- (* 3 x) (* 4 (cube x))))
+  (define (sine angle)
+    (if (not (> (abs angle) 0.1))
+        angle
+        (p (sine (/ angle 3.0)))))
+#+end_src
+
+#+RESULTS:
+
+a. How many times is the procedure p applied when (sine 12.15) is evaluated?
+
+This function displays the iteration and value.
+
+#+begin_src scheme :results output :session sine
+  (define (p x) (- (* 3 x) (* 4 (cube x))))
+  (define (cube x) (* x x x))
+  (define (sine-count angle iter)
+    (define (disp-iter val)
+      (display iter)
+      (display " ")
+      (display val)
+      (display "\n")
+      val)
+    (if (not (> (abs angle) 0.1))
+        angle
+        (disp-iter (p (sine-count (/ angle 3.0) (+ iter 1))))))
+
+  (sine-count 12.15 1)
+#+end_src
+
+#+RESULTS:
+: "5 0.1495\n4 0.4351345505\n3 0.9758465331678772\n2 -0.7895631144708228\n1 -0.39980345741334\n"
+
+b. What is the order of growth in space and number of steps (as a function of \(a\)) used by the process generated by the sine procedure when (sine a) is evaluated?
+
+The order of growth in steps equivalent to how quickly \(a\) goes to 0 in the argument of the call to src_scheme{sine}, which the smallest integer \(n\) where \(\frac{a}{3^{n}} \leq 0.1\), or \(n \geq \log_{3} 10a\), so \(\Theta(\log_{3} a)\). The order of growth in space is the same.
+**** 1.2.4 Exponentiation
+The basic recursive procedure for exponentiation:
+
+#+begin_src scheme
+  (define (expt b n)
+    (if (= n 0)
+        1
+        (* b (expt b (- n 1)))))
+#+end_src
+
+is \(\Theta(n)\) in # of steps and the same in space.
+
+The iterative procedure:
+
+#+begin_src scheme :session expt
+  (define (expti b n)
+    (expt-iter b n 0 1))
+
+  (define (expt-iter b n iter product)
+    (if (= iter n)
+        product
+        (expt-iter b n (+ iter 1) (* product b))))
+#+end_src
+
+is \(\Theta(n)\) in # of steps, but only \(\Theta(1)\) in space, since there are no deferred operations.
+
+But even better, if we take advantage of successive squaring (\(b^{8}=b^{2}^{2}^{2}\)), we can get \(Theta(\log n)\) in steps and space.
+
+#+begin_src scheme :session expt
+  (define (even? n)
+    (= (remainder n 2) 0))
+
+  (define (fast-exp b n)
+    (cond ((= n 0) 1)
+          ((even? n) (square (fast-exp b (/ n 2))))
+          (else (* b (fast-exp b (- n 1))))))
+#+end_src
+
+The argument to, at worst every other call of fast-exp, is halved.
+
+*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::51][Exercise 1.16]]*
+
+Design a procedure that evolves an iterative exponentiation process that uses successive squaring and uses a logarithmic number of steps, as does fast-expt. (Hint: Using the observation that \((b^{n/2})^{2} = (b^{2})^{n/2}\) , keep, along with the exponent \(n\) and the base \(b\), an additional state variable \(a\), and define the state transformation in such a way that the product \(a b^{n}\) is unchanged from state to state. At the beginning of the process \(a\) is taken to be 1, and the answer is given by the value of \(a\) at the end of the process. In general, the technique of defining an invariant quantity that remains unchanged from state to state is a powerful way to think about the design of iterative algorithms.)
+
+#+begin_src scheme
+  (define (square a) (* a a))
+
+  (define (fast-expti b n)
+    (fast-expt-iter b n 1 1))
+
+  (define (fast-expt-iter b n a i)
+    (display n)
+    (display " ")
+    (display a)
+    (display " ")
+    (display i)
+    (display "\n")
+    (cond ((= n 0) a)
+          ((= n 1) (* b a))
+          ((even? n) (fast-expt-iter b (/ n 2) (square i) a))
+          (else (fast-expt-iter b (- n 1) (* a i) i))))
+
+  ;; i = n
+  ;; a = 1
+  ;; while (i > 1) {
+  ;;   if (even?(i / 2)) {
+  ;;     a = b^2
+  ;;     i = i
+  ;;   } else
+  ;
+  ;; }
+  ;; b^n => b*b^(n-1)   (a = b, i = 1)
+  ;;
+  ;;      (a = b^2,i=1)   (a=(b^2)^2,i=2)   (a = ((b^2)^2)^2)
+  ;; b^n => (b^2)^n/2 => ((b^2)^2)^n/4 => (((b^2)^2)^2)^(n/8)
+  ;;                                       (a = (b^4))
+  ;;                                   => (((b^2)^2))
+  ;;                       (a = b^2*b, i=3)
+  ;;                  => or ((b^2)^2)^((n-1)/4)*((b^2)^2)^(1/2)
+  ;;
+#+end_src
