@@ -298,36 +298,115 @@ Design a procedure that evolves an iterative exponentiation process that uses su
   (define (square a) (* a a))
 
   (define (fast-expti b n)
-    (fast-expt-iter b n 1 1))
+    (fast-expt-iter n b 1))
 
-  (define (fast-expt-iter b n a i)
-    (display n)
-    (display " ")
-    (display a)
-    (display " ")
-    (display i)
-    (display "\n")
-    (cond ((= n 0) a)
-          ((= n 1) (* b a))
-          ((even? n) (fast-expt-iter b (/ n 2) (square i) a))
-          (else (fast-expt-iter b (- n 1) (* a i) i))))
+  (define (fast-expt-iter n base a)
+    (cond ((= n 0) 1)
+          ((= n 1) (* base a))
+          ((even? n) (fast-expt-iter (/ n 2) (square base) a))
+          (else (fast-expt-iter (- n 1) base (* base a)))))
+#+end_src
 
-  ;; i = n
-  ;; a = 1
-  ;; while (i > 1) {
-  ;;   if (even?(i / 2)) {
-  ;;     a = b^2
-  ;;     i = i
-  ;;   } else
-  ;
-  ;; }
-  ;; b^n => b*b^(n-1)   (a = b, i = 1)
-  ;;
-  ;;      (a = b^2,i=1)   (a=(b^2)^2,i=2)   (a = ((b^2)^2)^2)
-  ;; b^n => (b^2)^n/2 => ((b^2)^2)^n/4 => (((b^2)^2)^2)^(n/8)
-  ;;                                       (a = (b^4))
-  ;;                                   => (((b^2)^2))
-  ;;                       (a = b^2*b, i=3)
-  ;;                  => or ((b^2)^2)^((n-1)/4)*((b^2)^2)^(1/2)
-  ;;
+The pseudocode for this is:
+
+#+begin_src
+base = b
+a = 1
+
+if (n == 1) return 1
+
+while (n > 1) {
+  if (even? n) {
+    base *= base
+    n /= 2
+  } else {
+    a *= base
+    n--
+  }
+}
+base * a
+#+end_src
+
+*Exercise 1.17*. The exponentiation algorithms in this section are based on performing exponentiation by means of repeated multiplication. In a similar way, one can perform integer multiplication by means of repeated addition. The following multiplication procedure (in which it is assumed that our language can only add, not multiply) is analogous to the src_scheme{expt} procedure:
+
+#+begin_src scheme
+  (define (* a b)
+    (if (= b 0)
+        0
+        (+ a (* a (- b 1)))))
+
+#+end_src
+
+This algorithm takes a number of steps that is linear in =b=. Now suppose we include, together with addition, operations =double=, which doubles an integer, and =halve=, which divides an (even) integer by 2. Using these, design a multiplication procedure analogous to =fast-expt= that uses a logarithmic number of steps.
+
+#+begin_src scheme
+  (define (double a) (+ a a))
+  (define (halve a) (/ a 2))
+
+  (define (fast-mult b n)
+    (cond ((= n 0) 0)
+          ((even? n) (double (fast-mult b (halve n))))
+          (else (+ b (fast-mult b (- n 1))))))
+#+end_src
+
+*Exercise 1.18*. Using the results of exercises 1.16 and 1.17, devise a procedure that generates an iterative process for multiplying two integers in terms of adding, doubling, and halving and uses a logarithmic number of steps.
+
+#+begin_src scheme
+  (define (square a) (* a a))
+
+  (define (fast-multi b n)
+    (fast-mult-iter n b 0))
+
+  (define (fast-mult-iter n base a)
+    (cond ((= n 0) 0)
+          ((= n 1) (+ base a))
+          ((even? n) (fast-mult-iter (halve n) (double base) a))
+          (else (fast-mult-iter (- n 1) base (+ base a)))))
+#+end_src
+
+*Exercise 1.19*. There is a clever algorithm for computing the Fibonacci numbers in a logarithmic number of steps. Recall the transformation of the state variables a and b in the fib-iter process of section 1.2.2: \(a \leftarrow a + b\) and \(b \leftarrow a\). Call this transformation \(T\), and observe that applying \(T\) over and over again \(n\) times, starting with 1 and 0, produces the pair \(Fib(n + 1)\) and \(Fib(n)\). In other words, the Fibonacci numbers are produced by applying \(T^{n}\) , the nth power of the transformation \(T\), starting with the pair \((1,0)\). Now consider \(T\) to be the special case of \(p = 0\) and \(q = 1\) in a family of transformations \(T_{pq}\) , where \(T_{pq}\) transforms the pair \((a,b)\) according to \(a \leftarrow bq + aq + ap\) and \(b \leftarrow bp + aq\). Show that if we apply such a transformation \(T_{pq}\) twice, the effect is the same as using a single transformation \(T_{p’q'}\) of the same form, and compute p’ and q’ in terms of p and q. This gives us an explicit way to square these transformations, and thus we can compute T n using successive squaring, as in the fast-expt procedure. Put this all together to complete the following procedure, which runs in a logarithmic number of steps:
+
+Answer: Start by rewriting \((T_{pq})^{2}\):
+
+\[
+\begin{align}
+a & \leftarrow b_{1}q + a_{1}q + a_{1}p \\
+  & = (bp + aq)q + (bq + aq + ap)q + (bq + aq + ap)p \\
+  & = ap^{2} + 2(b + a)pq + (2a + b)q^{2} \\
+  & = (b + a)q' + ap'
+\end{align}
+\]
+
+\[
+\begin{align}
+b & \leftarrow b_{1}p + a_{1}q \\
+  & = (bp + aq)p + (bq + aq + ap)q \\
+  & = bp^{2} + 2apq + (a + b)q^{2} \\
+  & = bp' + aq'
+\end{align}
+\]
+
+These are solved with:
+
+\[
+\begin{align}
+q' & = 2pq + q^2 \\
+p' & = p^{2} + q^2
+\end{align}
+\]
+
+#+begin_src scheme
+  (define (fib n)
+    (fib-iter 1 0 0 1 n))
+
+  (define (fib-iter a b p q count)
+    (cond ((= count 0) b)
+          ((even? count)
+           (fib-iter a b
+                     (+ (square p) (square q))  ; compute p’
+                     (+ (* 2 p q) (square q))   ; compute q’
+                     (/ count 2)))
+          (else (fib-iter (+ (* b q) (* a q) (* a p))
+                          (+ (* b p) (* a q))
+                          p q (- count 1)))))
 #+end_src
