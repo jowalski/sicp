@@ -3,6 +3,10 @@
 #+LaTeX_HEADER: \usepackage{forest}
 #+LaTeX_HEADER: \newcommand{\leaf}[3]{{(cc #1 #2)\\[-1ex]\scriptsize #3}}
 * Exercises for the Structure and Interpretation of Computer Languages
+:PROPERTIES:
+:header-args: :results silent :noweb yes
+:header-args: :noweb yes
+:END:
 ** Chapter 1: Building Abstractions with Procedures
 *** 1.2 Procedures and the Processes They Generate
 #+LaTeX_HEADER: \newcommand{\mya}[2]{ ( A\, #1\, #2) }
@@ -278,7 +282,10 @@ is \(\Theta(n)\) in # of steps, but only \(\Theta(1)\) in space, since there are
 
 But even better, if we take advantage of successive squaring (\(b^{8}=b^{2}^{2}^{2}\)), we can get \(Theta(\log n)\) in steps and space.
 
+#+NAME: fast_exp
 #+begin_src scheme :session expt
+  (define (square a) (* a a))
+
   (define (even? n)
     (= (remainder n 2) 0))
 
@@ -410,3 +417,370 @@ p' & = p^{2} + q^2
                           (+ (* b p) (* a q))
                           p q (- count 1)))))
 #+end_src
+**** 1.2.5 Greatest Common Divisors
+Review,*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::53][Euclid's method]]* for computing GCD:
+
+#+begin_src scheme
+  (define (gcd a b)
+    (if (= b 0)
+        a
+        (gcd b (remainder a b))))
+#+end_src
+
+Interesting relationship to Fibonacci numbers.
+
+*Lame's Theorem*: if Euclid's Algorithm takes \(k\) steps to compute the GCD of some pair, then the smaller number in the pair must be greater than or equal to the \(k\)th Fibonacci number.
+
+Exercise 1.20. The process that a procedure generates is of course dependent on the rules used by the interpreter. As an example, consider the iterative gcd procedure given above. Suppose we were to interpret this procedure using normal-order evaluation, as discussed in section 1.1.5. (The normal-order-evaluation rule for if is described in exercise 1.5.) Using the substitution method (for normal order), illustrate the process generated in evaluating (gcd 206 40) and indicate the remainder operations that are actually performed. How many remainder operations are actually performed in the normal-order evaluation of (gcd 206 40)? In the applicative-order evaluation?
+
+Normal order:
+#+begin_src scheme
+  (gcd 206 40)
+  (if (= 40 0) 206 (gcd 40 (remainder 206 40)))
+  (gcd 40 (remainder 206 40))
+  (if (= (remainder 206 40) 0) 40 (gcd (remainder 206 40) (remainder 40 (remainder 206 40))))
+  ;; remainder performed here => 6
+  (gcd (remainder 206 40) (remainder 40 (remainder 206 40)))
+  (if (= (remainder 40 (remainder 206 40)) 0) (remainder 206 40) (gcd (remainder 40 (remainder 206 40)) (remainder (remainder 206 40) (remainder 40 (remainder 206 40)))))
+  ;; 2 remainders performed here => 4
+  (gcd (remainder 40 (remainder 206 40)) (remainder (remainder 206 40) (remainder 40 (remainder 206 40))))
+  (if ...)
+  ;; 3 remainders performed here? => 2
+  (gcd ...)
+  (if ...)
+  ;; 4 remainders performed here => 0
+  (remainder ...)
+  ;; 3 remainders performed to get answer
+  2
+#+end_src
+
+\(1 + 2 + 3 + 4 + 3 = 13\) remainder calculations?
+
+Applicative order:
+#+begin_src scheme
+  (gcd 206 40)
+  (gcd 40 (remainder 206 40))
+  (gcd 40 6)
+  (gcd 6 (remainder 40 6))
+  (gcd 6 4)
+  (gcd 4 (remainder 6 4))
+  (gcd 4 2)
+  (gcd 2 (remainder 4 2))
+  (gcd 2 0)
+  2
+#+end_src
+
+4 remainder calculations
+**** 1.2.6 Example: Testing for Primality
+*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::54][Fermat's Little Theorem]]*: If n is a prime number and a is any positive integer less than n, then a raised to the nth power is congruent to a modulo n.
+
+*congruent modulo n* means they both have the same remainder when divided by n.
+
+*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::55][Exercise 1.21]]*. Use the smallest-divisor procedure to find the smallest divisor of each of the following numbers: 199, 1999, 19999.
+
+#+NAME: fast_prime
+#+begin_src scheme
+  (define (square a) (* a a))
+
+  (define (expmod base exp m)
+    (cond ((= exp 0) 1)
+          ((even? exp)
+           (remainder (square (expmod base (/ exp 2) m))
+                      m))
+          (else
+           (remainder (* base (expmod base (- exp 1) m))
+                      m))))
+
+  (define (fermat-test n)
+    (define (try-it a)
+      (= (expmod a n n) a))
+    (try-it (+ 1 (random (- n 1)))))
+
+  (define (fast-prime? n times)
+    (cond ((= times 0) #t)
+          ((fermat-test n) (fast-prime? n (- times 1)))
+          (else #f)))
+#+end_src
+
+#+NAME: smallest_divisor
+#+begin_src scheme
+  (define (square a) (* a a))
+
+  (define (smallest-divisor n)
+    (find-divisor n 2))
+
+  (define (find-divisor n test-divisor)
+    (cond ((> (square test-divisor) n) n)
+          ((divides? test-divisor n) test-divisor)
+          (else (find-divisor n (+ test-divisor 1)))))
+
+  (define (divides? a b)
+    (= (remainder b a) 0))
+#+end_src
+
+#+begin_src scheme :results value replace
+  <<smallest_divisor>>
+  (map smallest-divisor (list 199 1999 19999))
+#+end_src
+
+#+RESULTS:
+: (199 1999 7)
+
+*Exercise 1.22*. Most Lisp implementations include a primitive called runtime that returns an integer that specifies the amount of time the system has been running (measured, for example, in microseconds). The following timed-prime-test procedure, when called with an integer n, prints n and checks to see if n is prime. If n is prime, the procedure prints three asterisks followed by the amount of time used in performing the test.
+
+#+NAME: timed_prime
+#+begin_src scheme
+  ;; need this in guile
+  (define runtime get-internal-run-time)
+
+  (define (timed-prime-test n)
+    (start-prime-test n (runtime)))
+
+  (define (start-prime-test n start-time)
+    (if (prime? n)
+        (report-prime (- (runtime) start-time) n)))
+
+  (define (report-prime elapsed-time n)
+    (display n)
+    (display " *** ")
+    (display elapsed-time)
+    (newline))
+#+end_src
+
+Using this procedure, write a procedure search-for-primes that checks the primality of consecutive odd integers in a specified range. Use your procedure to find the three smallest primes larger than 1000; larger than 10,000; larger than 100,000; larger than 1,000,000. Note the time needed to test each prime. Since the testing algorithm has order of growth of \(\Theta(\sqrt{n})\), you should expect that testing for primes around 10,000 should take about \(\sqrt{10}\) times as long as testing for primes around 1000. Do your timing data bear this out? How well do the data for 100,000 and 1,000,000 support the n prediction? Is your result compatible with the notion that programs on your machine run in time proportional to the number of steps required for the computation?
+
+#+NAME: test_primes
+#+begin_src scheme
+  (define (test-and-continue n m)
+    (timed-prime-test n)
+    (search-for-primes (+ n 2) m))
+
+  (define (search-for-primes n m)
+    (if (< n m)
+        (test-and-continue n m)))
+
+  (search-for-primes 1001 1020)
+  (search-for-primes 10001 10038)
+  (search-for-primes 100001 100044)
+  (search-for-primes 1000001 1000038)
+#+end_src
+
+#+NAME: search_for_primes
+#+begin_src scheme :results output raw replace
+  <<smallest_divisor>>
+  <<timed_prime>>
+
+  (define (prime? n)
+    (= n (smallest-divisor n)))
+
+  <<test_primes>>
+#+end_src
+
+#+RESULTS: search_for_primes
+"1009 *** 5101\n1013 *** 5229\n1019 *** 5240\n10007 *** 14819\n10009 *** 15225\n10037 *** 14782\n100003 *** 47098\n100019 *** 45892\n100043 *** 45397\n1000003 *** 142554\n1000033 *** 144807\n1000037 *** 140548\n"
+
+Yes, the difference in timing for testing each prime is roughly equal to \(\sqrt{10}\).
+
+*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::56][Exercise 1.23]]* The =smallest-divisor= procedure shown at the start of this section does lots of needless testing: After it checks to see if the number is divisible by 2 there is no point in checking to see if it is divisible by any larger even numbers. This suggests that the values used for =test-divisor= should not be 2, 3, 4, 5, 6, ..., but rather 2, 3, 5, 7, 9, .... To implement this change, define a procedure =next= that returns 3 if its input is equal to 2 and otherwise returns its input plus 2. Modify the =smallest-divisor= procedure to use =(next test-divisor)= instead of =(+ test-divisor 1)=. With timed-prime-test incorporating this modified version of smallest-divisor, run the test for each of the 12 primes found in exercise 1.22. Since this modification halves the number of test steps, you should expect it to run about twice as fast. Is this expectation confirmed? If not, what is the observed ratio of the speeds of the two algorithms, and how do you explain the fact that it is different from 2?
+
+#+begin_src scheme :results output raw replace
+  <<smallest_divisor>>
+  <<timed_prime>>
+
+  (define (smallest-divisor-fast n)
+    (find-divisor-fast n 2))
+
+  (define (next n)
+    (if (= n 2) 3 (+ n 2)))
+
+  (define (find-divisor-fast n test-divisor)
+    (cond ((> (square test-divisor) n) n)
+          ((divides? test-divisor n) test-divisor)
+          (else (find-divisor-fast n (next test-divisor)))))
+
+  (define (prime? n)
+    (= n (smallest-divisor-fast n)))
+
+  <<test_primes>>
+#+end_src
+
+#+RESULTS:
+"1009 *** 3692\n1013 *** 3662\n1019 *** 3565\n10007 *** 9692\n10009 *** 9595\n10037 *** 9700\n100003 *** 29441\n100019 *** 29209\n100043 *** 33358\n1000003 *** 90914\n1000033 *** 90855\n1000037 *** 94327\n"
+
+No. The ratio in times is closer to 1.5. This is because =find-divisor= is \(\Theta(\sqrt{n})\) itself, due to checking only for divisors up to \(\sqrt{n}\).
+
+*Exercise 1.24*. Modify the =timed-prime-test= procedure of exercise 1.22 to use =fast-prime?= (the Fermat method), and test each of the 12 primes you found in that exercise. Since the Fermat test has \(\Theta(\log n)\) growth, how would you expect the time to test primes near 1,000,000 to compare with the time needed to test primes near 1000? Do your data bear this out? Can you explain any discrepancy you find?
+
+You would expect the fractional difference in time to be \(\frac{\log{10^{6}}}{\log{10^{3}}} = 2\).
+
+#+begin_src scheme :results output raw replace
+  <<timed_prime>>
+  <<fast_prime>>
+
+  (define prime? (lambda (x) (fast-prime? x 10)))
+
+  <<test_primes>>
+#+end_src
+
+#+RESULTS:
+"1009 *** 43200\n1013 *** 44989\n1019 *** 46135\n10007 *** 56087\n10009 *** 58798\n10037 *** 58003\n100003 *** 65648\n100019 *** 67945\n100043 *** 67947\n1000003 *** 75438\n1000033 *** 75835\n1000037 *** 78192\n"
+
+That is *roughly* the case, though it appears to be somewhat less than that. It could because algorithm is probabilistic, and the chance of a match for a prime as a function of n is affecting things. Also, the call to =random= may also have an effect.
+
+*Exercise 1.25*. Alyssa P. Hacker complains that we went to a lot of extra work in writing =expmod=. After all, she says, since we already know how to compute exponentials, we could have simply written
+
+#+NAME: expmod_simple
+#+begin_src scheme
+  (define (expmod-simple base exp m)
+    (remainder (fast-exp base exp) m))
+#+end_src
+
+Is she correct? Would this procedure serve as well for our fast prime tester? Explain.
+
+First off, why is it always a hypothetical female that seems to be mistaken in these examples?
+
+This would have us creating on average exponents of size \((n/2)^{n}\), which will take up exponentially increasing amounts of space in addition to whatever additional time cost there is to =remainder=. In addition, =remainder= probably has some cost for large values.
+
+#+begin_src scheme :results output raw replace
+  <<fast_exp>>
+  <<expmod_simple>>
+
+  (define runtime get-internal-run-time)
+
+  (define (timed-expmod-test n)
+    (start-expmod-test n (runtime)))
+
+  (define (start-expmod-test n start-time)
+    (expmod-simple (+ 1 (random (- n 1))) n n)
+    (report-expmod (- (runtime) start-time) n))
+
+  (define (report-expmod elapsed-time n)
+    (display n)
+    (display " *** ")
+    (display elapsed-time)
+    (newline))
+
+  (map timed-expmod-test (list 101 1001 10001 100001))
+#+end_src
+
+#+RESULTS:
+"101 *** 34449\n1001 *** 24503\n10001 *** 299949\n100001 *** 7257138\n"
+
+This test seems to confirm the time cost increases exponentially.
+
+*Exercise 1.26*. Louis Reasoner is having great difficulty doing exercise 1.24. His fast-prime? test seems to run more slowly than his prime? test. Louis calls his friend Eva Lu Ator over to help. When they examine Louis’s code, they find that he has rewritten the expmod procedure to use an explicit multiplication, rather than calling square:
+
+#+begin_src scheme
+  (define (expmod base exp m)
+    (cond ((= exp 0) 1)
+          ((even? exp)
+           (remainder (* (expmod base (/ exp 2) m)
+                         (expmod base (/ exp 2) m))
+                      m))
+          (else
+           (remainder (* base (expmod base (- exp 1) m))
+                      m))))
+#+end_src
+
+"I don’t see what difference that could make," says Louis. "I do." says Eva. "By writing the procedure like that, you have transformed the \(\Theta(\log{n})\) process into a \(\Theta(n)\) process." Explain.
+
+For each even exponent calculation, =expmod= will be called twice instead of once. Given that expmod is \(\Theta(\log{n})\), this implies \(2^{\log{n}} = n\) calculations.
+
+*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::57][Exercise 1.27]]*. Demonstrate that the Carmichael numbers listed in footnote 47 really do fool the Fermat test. That is, write a procedure that takes an integer n and tests whether \(a^{n}\) is congruent to \(a\) modulo \(n\) for every \(a<n\), and try your procedure on the given Carmichael numbers.
+
+#+begin_src scheme :results value replace
+  <<fast_prime>>
+  <<smallest_divisor>>
+  (define (test-congruent a n)
+    (= (expmod a n n) (remainder a n)))
+
+  (define (fool-fermat? n)
+    (fool-fermat-iter 2 n))
+
+  (define (fool-fermat-iter a n)
+    (or (>= a n)
+        (and (test-congruent a n) (fool-fermat-iter (+ a 1) n))))
+
+  (map fool-fermat? (list 561 1105 1729 2465 2821 6601))
+#+end_src
+
+#+RESULTS:
+: (#t #t #t #t #t #t)
+
+And just to confirm they aren't primes.
+
+#+begin_src scheme :results value replace
+  <<smallest_divisor>>
+  (define (prime? n)
+    (= n (smallest-divisor n)))
+  (map prime? (list 561 1105 1729 2465 2821 6601))
+#+end_src
+
+#+RESULTS:
+: (#f #f #f #f #f #f)
+
+*Exercise 1.28* TODO
+*** 1.3 Formulating Abstractions with Higher-Order Procedures
+*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::60][Higher-order procedures]]* are procedures that manipulate procedures. Often the same programming pattern will be used with different procedures, it would be limiting not to be able to express these patterns in the language.
+
+**** 1.3.1 Procedures as Arguments
+We can write an abstract summing procedure, where =term= and =next= are procedures themselves that evaluate and increment the iteration respectively.
+
+#+NAME: sum
+#+begin_src scheme
+  (define (sum term a next b)
+    (if (> a b)
+        0
+        (+ (term a)
+           (sum term (next a) next b))))
+#+end_src
+
+#+NAME: integral
+#+begin_src scheme
+  (define (integral f a b dx)
+    (define (add-dx x) (+ x dx))
+    (* (sum f (+ a (/ dx 2.0)) add-dx b)
+       dx))
+#+end_src
+
+*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::63][Exercise 1.29]]*. Simpson’s Rule is a more accurate method of numerical integration than the method illustrated above. Using Simpson’s Rule, the integral of a function f between a and b is approximated as where \(h = (b - a)/n\), for some even integer n, and \(y_{k} = f(a + kh)\). (Increasing n increases the accuracy of the approximation.) Define a procedure that takes as arguments f, a, b, and n and returns the value of the integral, computed using Simpson’s Rule. Use your procedure to integrate cube between 0 and 1 (with n = 100 and n = 1000), and compare the results to those of the integral procedure shown above.
+
+#+NAME: simpsons
+#+begin_src scheme
+  ;; the coefficients of each term
+  (define (simp-coef k n)
+    (cond ((or (= k 0) (= k n)) 1)
+          ((odd? k) 4)
+          (else 2)))
+
+  ;; this is a "generic" simpsons, taking arbitrary
+  ;; coefficients and constant
+  (define (simp-sum-generic f n a b coef const)
+    (define (simpterm i)
+      (* (coef i n) (f (+ a (* (/ i n) (- b a))))))
+    (define (simpnext i) (+ i 1))
+    (* const (sum simpterm 0 simpnext n)))
+
+  (define (simpsons f n a b)
+    (simp-sum-generic f n a b simp-coef (/ (- b a) (* n 3))))
+#+end_src
+
+#+NAME: simpsons-approx
+#+begin_src scheme :results value replace
+  <<sum>>
+  <<integral>>
+  <<simpsons>>
+
+  (define (cube x) (* x x x))
+
+  (define (approx-compare n)
+    (list (simpsons cube n 0 1)
+        (integral cube 0 1 (/ 1 n))))
+
+  (map approx-compare (list 100 1000))
+#+end_src
+
+#+RESULTS: simpsons-approx
+: ((1/4 0.24998750000000042) (1/4 0.249999875000001))
+
+*Exercise 1.30*
