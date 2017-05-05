@@ -282,10 +282,14 @@ is \(\Theta(n)\) in # of steps, but only \(\Theta(1)\) in space, since there are
 
 But even better, if we take advantage of successive squaring (\(b^{8}=b^{2}^{2}^{2}\)), we can get \(Theta(\log n)\) in steps and space.
 
+#+NAME: square
+#+begin_src scheme
+  (define (square a) (* a a))
+#+end_src
+
 #+NAME: fast_exp
 #+begin_src scheme :session expt
-  (define (square a) (* a a))
-
+  <<square>>
   (define (even? n)
     (= (remainder n 2) 0))
 
@@ -302,7 +306,7 @@ The argument to, at worst every other call of fast-exp, is halved.
 Design a procedure that evolves an iterative exponentiation process that uses successive squaring and uses a logarithmic number of steps, as does fast-expt. (Hint: Using the observation that \((b^{n/2})^{2} = (b^{2})^{n/2}\) , keep, along with the exponent \(n\) and the base \(b\), an additional state variable \(a\), and define the state transformation in such a way that the product \(a b^{n}\) is unchanged from state to state. At the beginning of the process \(a\) is taken to be 1, and the answer is given by the value of \(a\) at the end of the process. In general, the technique of defining an invariant quantity that remains unchanged from state to state is a powerful way to think about the design of iterative algorithms.)
 
 #+begin_src scheme
-  (define (square a) (* a a))
+  <<square>>
 
   (define (fast-expti b n)
     (fast-expt-iter n b 1))
@@ -359,7 +363,7 @@ This algorithm takes a number of steps that is linear in =b=. Now suppose we inc
 *Exercise 1.18*. Using the results of exercises 1.16 and 1.17, devise a procedure that generates an iterative process for multiplying two integers in terms of adding, doubling, and halving and uses a logarithmic number of steps.
 
 #+begin_src scheme
-  (define (square a) (* a a))
+  <<square>>
 
   (define (fast-multi b n)
     (fast-mult-iter n b 0))
@@ -403,6 +407,8 @@ p' & = p^{2} + q^2
 \]
 
 #+begin_src scheme
+  <<square>>
+
   (define (fib n)
     (fib-iter 1 0 0 1 n))
 
@@ -481,7 +487,7 @@ Applicative order:
 
 #+NAME: fast_prime
 #+begin_src scheme
-  (define (square a) (* a a))
+  <<square>>
 
   (define (expmod base exp m)
     (cond ((= exp 0) 1)
@@ -505,7 +511,7 @@ Applicative order:
 
 #+NAME: smallest_divisor
 #+begin_src scheme
-  (define (square a) (* a a))
+  <<square>>
 
   (define (smallest-divisor n)
     (find-divisor n 2))
@@ -855,7 +861,10 @@ b. If your product procedure generates a recursive process, write one that gener
         null-value
         (combiner a (accumulater combiner null-value
                      term (next a) next b))))
+#+end_src
 
+#+begin_src scheme
+  <<accumulate>>
   (define (suma term a next b)
     (accumulatei + 0 term a next b))
 
@@ -902,8 +911,7 @@ a. the sum of the squares of the prime numbers in the interval a to b (assuming 
 #+begin_src scheme
   <<filtered_accumulate>>
   <<smallest_divisor>>
-
-  (define (square x) (* x x))
+  <<square>>
 
   (define (prime? n)
     (= n (smallest-divisor n)))
@@ -961,6 +969,7 @@ b. the product of all the positive integers less than n that are relatively prim
 Then we have
 
 #+begin_src scheme
+<<square>>
 (f square)
 4
 (f (lambda (z) (* z (+ z 1))))
@@ -984,9 +993,14 @@ We can think of g as a lambda.
 **** 1.3.3 Procedures as General Methods
 A *[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::69][fixed point]]* satisfies \(f(x) = x\). It's common to find fixed points by starting with a guess and repeatedly applying \(f\), so \(f(a), f(f(a)), f(f(f(a))), \dots\).
 
+#+NAME: tolerance
+#+begin_src scheme
+(define tolerance 0.00001)
+#+end_src
+
 #+NAME: fixed_point
 #+begin_src scheme
-  (define tolerance 0.00001)
+  <<tolerance>>
   (define (fixed-point f first-guess)
     (define (close-enough? v1 v2)
       (< (abs (- v1 v2)) tolerance))
@@ -1023,6 +1037,7 @@ The golden ratio satisfies: \(\phi^{2} = \phi + 1\), which can be rewritten \(\p
 
 #+NAME: fixed_point_print
 #+begin_src scheme
+  <<tolerance>>
   (define (fixed-point-print f first-guess)
     (define (close-enough? v1 v2)
       (< (abs (- v1 v2)) tolerance))
@@ -1036,6 +1051,440 @@ The golden ratio satisfies: \(\phi^{2} = \phi + 1\), which can be rewritten \(\p
     (try first-guess))
 #+end_src
 
+(without damping)
+
+#+NAME: x_to_x
 #+begin_src scheme
-  ()
+  (define (x-to-x x) (/ (log 1000) (log x)))
+#+end_src
+
+#+begin_src scheme :results output replace
+  <<fixed_point_print>>
+  <<x_to_x>>
+  (fixed-point-print x-to-x 2.0)
+#+end_src
+
+#+RESULTS:
+: "2.0\n9.965784284662087\n3.004472209841214\n6.279195757507157\n3.759850702401539\n5.215843784925895\n4.182207192401397\n4.8277650983445906\n4.387593384662677\n4.671250085763899\n4.481403616895052\n4.6053657460929\n4.5230849678718865\n4.577114682047341\n4.541382480151454\n4.564903245230833\n4.549372679303342\n4.559606491913287\n4.552853875788271\n4.557305529748263\n4.554369064436181\n4.556305311532999\n4.555028263573554\n4.555870396702851\n4.555315001192079\n4.5556812635433275\n4.555439715736846\n4.555599009998291\n4.555493957531389\n4.555563237292884\n4.555517548417651\n4.555547679306398\n4.555527808516254\n4.555540912917957\n"
+
+#+begin_src scheme :results output replace
+  <<tolerance>>
+  <<x_to_x>>
+  (define (fixed-point-damped-print f first-guess)
+    (define (close-enough? v1 v2)
+      (< (abs (- v1 v2)) tolerance))
+    (define (damped-guess x) (/ (+ x (f x)) 2))
+    (define (try guess)
+      (display guess)
+      (newline)
+      (let ((next (damped-guess guess)))
+        (if (close-enough? guess next)
+            next
+            (try next))))
+    (try first-guess))
+  (fixed-point-damped-print x-to-x 2.0)
+#+end_src
+
+#+RESULTS:
+: "2.0\n5.9828921423310435\n4.922168721308343\n4.628224318195455\n4.568346513136242\n4.5577305909237005\n4.555909809045131\n4.555599411610624\n4.5555465521473675\n"
+
+(8 steps vs ~28)
+
+*Exercise 1.37*. a. An infinite continued fraction is an expression of the form
+
+\[
+f = \frac{N_{1}}{D_{1} + \frac{N_{2}}{D_{2} + \frac{N_{3}}{D_{3} + \hdots}}}
+\]
+
+As an example, one can show that the infinite continued fraction expansion with the \(N_{i}\) and the \(D_{i}\) all equal to 1 produces \(1/\phi\) , where \(\phi\) is the golden ratio (described in section 1.2.2). One way to approximate an infinite continued fraction is to truncate the expansion after a given number of terms. Such a truncation -- a so-called *k-term finite continued fraction* -- has the form
+
+\[
+\frac{N_{1}}{D_{1} + \frac{N_{2}}{\ddots + \frac{N_{K}}{D_{K}}}}
+\]
+
+Suppose that =n= and =d= are procedures of one argument (the term index =i=) that return the \(N_{i}\) and \(D_{i}\) of the terms of the continued fraction. Define a procedure =cont-frac= such that evaluating =(cont-frac n d k)= computes the value of the k-term finite continued fraction. Check your procedure by approximating \(1/\phi\) using
+
+#+begin_src scheme
+(cont-frac (lambda (i) 1.0)
+           (lambda (i) 1.0)
+           k)
+#+end_src
+
+for successive values of k. How large must you make k in order to get an approximation that is accurate to 4 decimal places?
+
+#+NAME: cont_frac
+#+begin_src scheme
+  (define (dec x) (- x 1))
+
+  (define (cont-fraci n d k)
+    (define (iter i result)
+      (if (= i 0)
+          result
+          (iter (dec i) (/ (n i) (+ (d i) result)))))
+    (iter k 0))
+#+end_src
+
+#+begin_src scheme :results replace
+  (/ 1 (cont-fraci (lambda (i) 1.0) (lambda (i) 1.0) 13))
+
+#+end_src
+
+#+RESULTS:
+: 1.6180257510729614
+
+With trial and error it took \(k=13\).
+
+b. If your cont-frac procedure generates a recursive process, write one that generates an iterative process. If it generates an iterative process, write one that generates a recursive process.
+
+(recursive process)
+
+#+begin_src scheme :results replace
+  (define (cont-fracr n d k)
+    (define (rec i)
+       (if (> i k)
+           0
+           (/ (n i) (+ (d i) (rec (+ i 1))))))
+    (rec 1))
+
+  (/ 1 (cont-fracr (lambda (i) 1.0) (lambda (i) 1.0) 13))
+#+end_src
+
+#+RESULTS:
+: 1.6180257510729614
+
+*Exercise 1.38*. In 1737, the Swiss mathematician Leonhard Euler published a memoir De Fractionibus Continuis, which included a continued fraction expansion for \(e - 2\), where \(e\) is the base of the natural logarithms. In this fraction, the \(N_{i}\) are all 1, and the \(D_{i}\) are successively 1, 2, 1, 1, 4, 1, 1, 6, 1, 1, 8, .... Write a program that uses your =cont-frac= procedure from exercise 1.37 to approximate \(e\), based on Euler’s expansion.
+
+#+begin_src scheme :results replace
+<<cont_frac>>
+
+(define (euler-d i)
+   (if (not (= (remainder i 3) 2))
+       1.0
+       (* 2.0 (/ (+ i 1) 3))))
+
+(+ 2 (cont-fraci (lambda (i) 1.0) euler-d 13))
+#+end_src
+
+#+RESULTS:
+: 2.718281828735696
+
+*Exercise 1.39*. A continued fraction representation of the tangent function was published in 1770 by the German mathematician J.H. Lambert:
+
+\[
+\tan x = \frac{x}{1 - \frac{x^{2}}{3 - \frac{x^{2}}{5 - \ddots}}}
+\]
+
+where x is in radians. Define a procedure =(tan-cf x k)= that computes an approximation to the tangent function based on Lambert’s formula. =k= specifies the number of terms to compute, as in exercise 1.37.
+
+#+begin_src scheme
+<<cont_frac>>
+
+(define (tan-cf x k)
+   (/ (cont-fraci (lambda (i) (- (* x x)))
+                  (lambda (i) (- (* i 2) 1)) k)
+      (- x)))
+#+end_src
+**** 1.3.4 Procedures as Returned Values
+*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::73][Newton's method]]* converges very rapidly to find zeros of a differentiable function \(x \mapsto g(x)\), by finding the fixed point of \(x \mapsto f(x)\):
+
+\[
+f(x) = x - \frac{g(x)}{Dg(x)}
+\]
+
+We can define a derivative function, which returns a function:
+
+#+NAME: deriv
+#+begin_src scheme
+  <<infi>>
+  (define (deriv g)
+    (lambda (x)
+      (/ (- (g (+ x dx)) (g x))
+         dx)))
+#+end_src
+
+#+NAME: infi
+#+begin_src scheme
+  (define dx 0.00001)
+#+end_src
+
+And now define newton's method:
+
+#+NAME: newtons
+#+begin_src scheme
+  <<fixed_point>>
+  (define (newton-transform g)
+    (lambda (x)
+      (- x (/ (g x) ((deriv g) x)))))
+
+  (define (newtons-method g guess)
+    (fixed-point (newton-transform g) guess))
+#+end_src
+
+We can use this to find square roots (\(\sqrt{x}\) is a fixed point of \(y \mapsto y^{2} - x\)):
+
+#+begin_src scheme
+  <<square>>
+  (define (sqrt-newton x)
+    (newtons-method (lambda (y) (- (square y) x)) 1.0))
+#+end_src
+
+An abstraction of this concept is:
+
+#+NAME: fixed_point_transform
+#+begin_src scheme
+  <<fixed_point>>
+  (define (fixed-point-of-transform g transform guess)
+    (fixed-point (transform g) guess))
+#+end_src
+
+Which makes the average-dampening sqrt:
+
+#+NAME: average_damp
+#+begin_src scheme
+  (define (average-damp f)
+    (lambda (x) (/ (+ (f x) x) 2)))
+#+end_src
+
+#+begin_src scheme
+  <<fixed_point_transform>>
+  (define (sqrt-avg x)
+    (fixed-point-of-transform (lambda (y) (/x y))
+                              average-damp
+                              1.0))
+  (define (sqrt-newt x)
+    (fixed-point-of-transform (lambda (y) (- (square y) x))
+                              newton-transform
+                              1.0))
+#+end_src
+
+In scheme/lisp procedures are *first-class* elements.
+
+*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::75][Exercise 1.40]]* Define a procedure cubic that can be used together with the newtons-method procedure in expressions of the form
+
+#+begin_src scheme
+  (newtons-method (cubic a b c) 1)
+#+end_src
+
+to approximate zeros of the cubic \(x^{3} + ax^{2} + bx + c\).
+
+#+NAME: cube
+#+begin_src scheme
+  (define (cube x) (* x x x))
+#+end_src
+
+#+begin_src scheme
+  <<cube>>
+  (define (cubic a b c)
+    (lambda (x) (+ (cube x) (* a (square x)) (* b x) c)))
+#+end_src
+
+*Exercise 1.41*. Define a procedure double that takes a procedure of one argument as argument and returns a procedure that applies the original procedure twice. For example, if inc is a procedure that adds 1 to its argument, then (double inc) should be a procedure that adds 2. What value is returned by
+
+#+begin_src scheme :results replace
+  <<double>>
+  <<inc>>
+  (((double (double double)) inc) 5)
+#+end_src
+
+#+RESULTS:
+: 21
+
+#+NAME: double
+#+begin_src scheme
+  (define (double f)
+    (lambda (x) (f (f x))))
+#+end_src
+
+#+NAME: inc
+#+begin_src scheme
+  (define (inc x) (+ x 1))
+#+end_src
+
+*Exercise 1.42*. Let f and g be two one-argument functions. The composition f after g is defined to be the function \(x \mapsto f(g(x))\). Define a procedure compose that implements composition. For example, if inc is a procedure that adds 1 to its argument,
+
+#+begin_src scheme :results replace
+  <<compose>>
+  <<square>>
+  <<inc>>
+  ((compose square inc) 6)
+#+end_src
+
+#+RESULTS:
+: 49
+
+#+NAME: compose
+#+begin_src scheme
+  (define (compose f g)
+    (lambda (x) (f (g x))))
+#+end_src
+
+*Exercise 1.43*. If \(f\) is a numerical function and \(n\) is a positive integer, then we can form the \(n\)th repeated application of \(f\), which is defined to be the function whose value at \(x\) is \(f(f(\dots(f(x)) \dots ))\). For example, if \(f\) is the function \(x \mapsto x + 1\), then the \(n\)th repeated application of \(f\) is the function \(x \mapsto x + n\). If \(f\) is the operation of squaring a number, then the \(n\)th repeated application of \(f\) is the function that raises its argument to the \(2^{n}\) th power. Write a procedure that takes as inputs a procedure that computes \(f\) and a positive integer \(n\) and returns the procedure that computes the \(n\)th repeated application of \(f\). Your procedure should be able to be used as follows:
+
+#+begin_src scheme :results replace
+  <<repeated>>
+  <<square>>
+  ((repeated square 2) 5)
+#+end_src
+
+#+RESULTS:
+: 625
+
+#+NAME: repeated
+#+begin_src scheme
+  <<compose>>
+  (define (repeated f n)
+    (if (= n 1)
+        f
+        (compose f (repeated f (- n 1)))))
+#+end_src
+
+*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::76][Exercise 1.44]]*. The idea of smoothing a function is an important concept in signal processing. If \(f\) is a function and \(dx\) is some small number, then the smoothed version of f is the function whose value at a point \(x\) is the average of \(f(x - dx)\), \(f(x)\), and \(f(x + dx)\). Write a procedure smooth that takes as input a procedure that computes \(f\) and returns a procedure that computes the smoothed \(f\). It is sometimes valuable to repeatedly smooth a function (that is, smooth the smoothed function, and so on) to obtained the \(n\)-fold smoothed function. Show how to generate the \(n\)-fold smoothed function of any given function using smooth and repeated from exercise 1.43.
+
+#+NAME: smooth
+#+begin_src scheme
+  <<infi>>
+  <<repeated>>
+  (define (smooth f)
+    (lambda (x) (/ (+ (f (- x dx)) (f x) (f (+ x dx))) 3)))
+  (define (n-smooth f n)
+    ((repeated smooth n) f))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<smooth>>
+  <<square>>
+  (define small-num 0.0000001)
+  (define (inv-sin x) (/ 1 (sin x)))
+  (list ((smooth inv-sin) small-num)
+        ((n-smooth inv-sin 2) small-num))
+#+end_src
+
+#+RESULTS:
+: (3332666.5999933495 3332833.2874955214)
+
+*Exercise 1.45*. We saw in section 1.3.3 that attempting to compute square roots by naively finding a fixed point of \(y \mapsto x/y\) does not converge, and that this can be fixed by average damping. The same method works for finding cube roots as fixed points of the average-damped \(y \mapsto x/y^{2} \). Unfortunately, the process does not work for fourth roots -- a single average damp is not enough to make a fixed-point search for \(y \mapsto x/y^{3}\) converge. On the other hand, if we average damp twice (i.e., use the average damp of the average damp of \(y \mapsto x/y^{3}\) ) the fixed-point search does converge. Do some experiments to determine how many average damps are required to compute \(n\)th roots as a fixed-point search based upon repeated average damping of \(y \mapsto x/y^{n-1}\) . Use this to implement a simple procedure for computing \(n\)th roots using =fixed-point=, =average-damp=, and the repeated procedure of exercise 1.43. Assume that any arithmetic operations you need are available as primitives.
+
+#+NAME: nth_root
+#+begin_src scheme
+  <<average_damp>>
+  <<fixed_point_transform>>
+  <<repeated>>
+
+  (define (fourth-root x)
+    (fixed-point-of-transform (lambda (y) (/ x (expt y 3)))
+                              (repeated average-damp 2)
+                              1.0))
+
+  (define (nth-root-test x n reps)
+    (fixed-point-of-transform (lambda (y) (/ x (expt y (- n 1))))
+                              (repeated average-damp reps)
+                              1.0))
+  ;; these seem to never converge (i.e. loop endlessly in REPL),
+  ;; but with reps+1 they succeed, so it seems reps = floor (log_2 n)
+  ;; (nth-root-test 3 4 1)
+  ;; (nth-root-test 3 8 2)
+  ;; (nth-root-test 3 16 3)
+
+  (define (nth-root x n)
+    (fixed-point-of-transform (lambda (y) (/ x (expt y (- n 1))))
+                              (repeated average-damp
+                                 (centered-quotient (log n) (log 2)))
+                              1.0))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<nth_root>>
+  (nth-root (expt 2 64) 64)
+#+end_src
+
+#+RESULTS:
+: 2.0000000000000853
+
+*Exercise 1.46*. Several of the numerical methods described in this chapter are instances of an extremely general computational strategy known as iterative improvement. Iterative improvement says that, to compute something, we start with an initial guess for the answer, test if the guess is good enough, and otherwise improve the guess and continue the process using the improved guess as the new guess. Write a procedure =iterative-improve= that takes two procedures as arguments: a method for telling whether a guess is good enough and a method for improving a guess. =iterative-improve= should return as its value a procedure that takes a guess as argument and keeps improving the guess until it is good enough. Rewrite the sqrt procedure of section 1.1.7 and the fixed-point procedure of section 1.3.3 in terms of iterative-improve.
+
+#+NAME: iimprove
+#+begin_src scheme
+(define (iterative-improve f-good-enough? f-improve)
+  (lambda (x)
+    (define (iter guess)
+      (if (f-good-enough? guess)
+          guess
+          (iter (f-improve guess))))
+    (iter x)))
+#+end_src
+
+#+begin_src scheme :results replace
+<<iimprove>>
+<<square>>
+(define (sqrt-ii x)
+  ((iterative-improve
+     (lambda (guess) (< (abs (- (square guess) x)) 0.001))
+     (lambda (guess) (/ (+ guess (/ x guess)) 2.0)))
+    x))
+(list (sqrt-ii 43)
+      (sqrt 43))
+#+end_src
+
+#+RESULTS:
+: (6.557438561779193 6.557438524302)
+
+#+begin_src scheme :results replace
+<<iimprove>>
+<<fixed_point>>
+(define tolerance 0.00001)
+(define (fixed-point-ii f first-guess)
+  ((iterative-improve
+     (lambda (guess) (< (abs (- guess (f guess))) tolerance))
+     f)
+    first-guess))
+
+(list (fixed-point-ii cos 1.0)
+      (fixed-point cos 1.0))
+#+end_src
+
+#+RESULTS:
+: (0.7390893414033927 0.7390822985224024)
+** Chapter 2: Building Abstractions with Data
+*** 2.1 Introduction to Data Abstraction
+**** 2.1.1 Example: Arithmetic Operations for Rational Numbers
+We want to do arithmetic with rational numbers, and have the usual operations available. We can use =cons=, =car= and =cdr= for this:
+
+#+NAME: rat
+#+begin_src scheme
+  <<gcd>>
+  (define (numer x) (car d))
+  (define (denom x) (cdr x))
+  (define (print-rat x)
+    (newline)
+    (display (numer x))
+    (display "/")
+    (display (denom x)))
+
+  (define (add-rat x y)
+    (make-rat (+ (* (numer x) (denom y))
+                 (* (numer y) (denom x)))
+              (* (denom x) (denom y))))
+  (define (sub-rat x y)
+    (make-rat (- (* (numer x) (denom y))
+                 (* (numer y) (denom x)))
+              (* (denom x) (denom y))))
+  (define (mul-rat x y)
+    (make-rat (* (numer x) (numer y))
+              (* (denom x) (denom y))))
+  (define (div-rat x y)
+    (make-rat (* (numer x) (denom y))
+              (* (denom x) (numer y))))
+  (define (equal-rat? x y)
+    (= (* (numer x) (denom y))
+       (* (numer y) (denom x))))
+
+  (define (make-rat n d)
+    (let ((g (gcd n d)))
+      (cons (/ n g) (/ d g))))
+#+end_src
+
+*Exercise 2.1*. Define a better version of =make-rat= that handles both positive and negative arguments. =make-rat= should normalize the sign so that if the rational number is positive, both the numerator and denominator are positive, and if the rational number is negative, only the numerator is negative.
+
+#+begin_src scheme
+
 #+end_src
