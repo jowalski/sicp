@@ -1766,3 +1766,279 @@ We can test this.
 #+RESULTS:
 : (3 -123 81)
 **** 2.1.4 Extended Exercise: Interval Arithmetic
+We create an interval object with these methods.
+
+#+NAME: interval_add
+#+begin_src scheme
+  (define (add-interval x y)
+    (make-interval (+ (lower-bound x) (lower-bound y))
+                   (+ (upper-bound x) (upper-bound y))))
+
+  (define (mul-interval x y)
+    (let ((p1 (* (lower-bound x) (lower-bound y)))
+          (p2 (* (lower-bound x) (upper-bound y)))
+          (p3 (* (upper-bound x) (lower-bound y)))
+          (p4 (* (upper-bound x) (upper-bound y))))
+      (make-interval (min p1 p2 p3 p4)
+                     (max p1 p2 p3 p4))))
+#+end_src
+
+#+NAME: interval_div
+#+begin_src scheme
+  (define (div-interval x y)
+    (mul-interval x
+                  (make-interval (/ 1.0 (upper-bound y))
+                                 (/ 1.0 (lower-bound y)))))
+#+end_src
+
+[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::89][Exercise 2.7]]. Alyssa’s program is incomplete because she has not specified the implementation of the interval abstraction. Here is a definition of the interval constructor:
+
+#+NAME: interval_construct
+#+begin_src scheme
+(define (make-interval a b) (cons a b))
+#+end_src
+
+Define selectors upper-bound and lower-bound to complete the implementation.
+
+#+NAME: interval_bound
+#+begin_src scheme
+(define (upper-bound x) (cdr x))
+(define (lower-bound x) (car x))
+#+end_src
+
+
+*Exercise 2.8*. Using reasoning analogous to Alyssa’s, describe how the difference of two intervals may be computed. Define a corresponding subtraction procedure, called sub-interval.
+
+#+NAME: interval_sub
+#+begin_src scheme
+  (define (sub-interval x y)
+    (let ((p1 (- (lower-bound x) (lower-bound y)))
+          (p2 (- (upper-bound x) (upper-bound y))))
+      (make-interval (min p1 p2) (max p1 p2))))
+#+end_src
+
+*Exercise 2.9*. The width of an interval is half of the difference between its upper and lower bounds. The width is a measure of the uncertainty of the number specified by the interval. For some arithmetic operations the width of the result of combining two intervals is a function only of the widths of the argument intervals, whereas for others the width of the combination is not a function of the widths of the argument intervals. Show that the width of the sum (or difference) of two intervals is a function only of the widths of the intervals being added (or subtracted). Give examples to show that this is not true for multiplication or division.
+
+Let \(w_{x}\) be the width of interval \(x\), \((x_{l}, x_{u})\) and \((y_{l}, y_{u})\) be two intervals. By the definitions of addition and width, we have:
+
+\[
+\begin{align}
+w_{x+y} & = \frac{(x + y)_{u} - (x + y)_{l}}{2} \\
+        & = (1/2)(x_{u} - x_{l} + y_{u} - y_{l}) \\
+        & = w_{x} + w_{y}
+\end{align}
+\]
+
+\[
+\begin{align}
+w_{x-y} & = \frac{(x-y)_{u} - (x-y)_{l}}{2} \\
+        & = (1/2)(\max(x_{u}-y_{u},x_{l}-y_{l})-\min(x_{u}-y_{u},x_{l}-y_{l})) \\
+        & = (1/2)(|(x_{u} - y_{u}) - (x_{l} - y_{l})|) \\
+        & = (1/2)(|(x_{u} - x_{l}) - (y_{u} - y_{l})|) \\
+        & = |w_{x} - w_{y}|
+\end{align}
+\]
+
+#+NAME: interval_width
+#+begin_src scheme
+(define (width-interval x)
+  (/ (- (upper-bound x) (lower-bound x)) 2))
+#+end_src
+
+Here are counterexamples for multiplication and division.
+
+#+NAME: interval
+#+begin_src scheme :results replace
+<<interval_add>>
+<<interval_construct>>
+<<interval_bound>>
+<<interval_div>>
+<<interval_sub>>
+<<interval_width>>
+
+(define i1 (make-interval 1 1.5))
+(define i2 (make-interval 2 4))
+(list (list (width-interval (mul-interval i1 i2))
+            (* (width-interval i1) (width-interval i2)))
+      (list (width-interval (div-interval i2 i1))
+            (/ (width-interval i2) (width-interval i1))))
+#+end_src
+
+#+RESULTS: interval
+: ((2.0 0.25) (1.3333333333333335 4.0))
+
+*Exercise 2.10*. Ben Bitdiddle, an expert systems programmer, looks over Alyssa’s shoulder and comments that it is not clear what it means to divide by an interval that spans zero. Modify Alyssa’s code to check for this condition and to signal an error if it occurs.
+
+#+NAME: interval_div0
+#+begin_src scheme
+  (define (div-interval x y)
+    (if (and (> (upper-bound y) 0)
+             (< (lower-bound y) 0))
+        (display "Error: dividing by an interval that spans zero")
+        (mul-interval x
+                      (make-interval (/ 1.0 (upper-bound y))
+                                     (/ 1.0 (lower-bound y))))
+        )
+    )
+#+end_src
+
+*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::90][Exercise 2.11]]*. In passing, Ben also cryptically comments: "By testing the signs of the endpoints of the intervals, it is possible to break =mul-interval= into nine cases, only one of which requires more than two multiplications." Rewrite this procedure using Ben’s suggestion.
+
+#+NAME: mul_interval9
+#+begin_src scheme
+  (define (mul-interval9 x y)
+    (define (ubpos a) (>= (upper-bound a) 0))
+    (define (lbpos a) (>= (lower-bound a) 0))
+    (define (ubneg a) (< (upper-bound a) 0))
+    (define (lbneg a) (< (lower-bound a) 0))
+    (define lxly (* (lower-bound x) (lower-bound y)))
+    (define lxuy (* (lower-bound x) (upper-bound y)))
+    (define uxly (* (upper-bound x) (lower-bound y)))
+    (define uxuy (* (upper-bound x) (upper-bound y)))
+    ;; 1 both all pos,
+    (cond ((and (lbpos x) (lbpos y))
+           (make-interval lxly uxuy))
+          ;; 2 both all neg
+          ((and (ubneg x) (ubneg y))
+           (make-interval uxuy lxly))
+          ;; 3 x pos y straddle
+          ((and (lbpos x) (ubpos y))
+           (make-interval uxly uxuy))
+          ;; 4 x straddle, y pos
+          ((and (ubpos x) (lbpos y))
+           (make-interval lxuy uxuy))
+          ;; 5 x neg, y straddle
+          ((and (ubneg x) (lbneg y) (ubpos y))
+           (make-interval lxuy lxly))
+          ;; 6 x straddle, y neg
+          ((and (lbneg x) (ubpos x) (ubneg y))
+           (make-interval uxly lxly))
+          ;; 7 xpos yneg
+          ((and (lbpos x) (ubneg y))
+           (make-interval uxly lxuy))
+          ;; 8 xneg ypos
+          ((and (ubneg x) (lbpos y))
+           (make-interval lxuy uxly))
+          ;; 9 x straddle, y straddle  <= >2 multiplications
+          (else
+           (make-interval (min lxuy uxly)
+                          (max uxuy lxly)))))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<interval>>
+  <<mul_interval9>>
+  (define i-neg (make-interval -3 -1))
+  (define i-straddle (make-interval -4 5))
+  (define i-pos (make-interval 0.5 0.75))
+
+  (define (compare-mults i1 i2)
+    (list (mul-interval i1 i2)
+          (mul-interval9 i1 i2)))
+
+  (list (compare-mults i-neg i-neg)
+        (compare-mults i-neg i-straddle)
+        (compare-mults i-neg i-pos)
+        (compare-mults i-straddle i-neg)
+        (compare-mults i-straddle i-straddle)
+        (compare-mults i-straddle i-pos)
+        (compare-mults i-pos i-neg)
+        (compare-mults i-pos i-straddle)
+        (compare-mults i-pos i-pos))
+#+end_src
+
+#+RESULTS:
+: (((1 . 9) (1 . 9)) ((-15 . 12) (-15 . 12)) ((-2.25 . -0.5) (-2.25 . -0.5)) ((-15 . 12) (-15 . 12)) ((-20 . 25) (-20 . 25)) ((-3.0 . 3.75) (-3.0 . 3.75)) ((-2.25 . -0.5) (-2.25 . -0.5)) ((-3.0 . 3.75) (-3.0 . 3.75)) ((0.25 . 0.5625) (0.25 . 0.5625)))
+
+#+NAME: center_width
+#+begin_src scheme
+  (define (make-center-width c w)
+    (make-interval (- c w) (+ c w)))
+  (define (center i)
+    (/ (+ (lower-bound i) (upper-bound i)) 2))
+  (define (width i)
+    (/ (- (upper-bound i) (lower-bound i)) 2))
+#+end_src
+
+*Exercise 2.12*. Define a constructor =make-center-percent= that takes a center and a percentage tolerance and produces the desired interval. You must also define a selector percent that produces the percentage tolerance for a given interval. The center selector is the same as the one shown above.
+
+#+NAME: center_percent
+#+begin_src scheme
+<<center_width>>
+<<interval>>
+(define (make-center-percent c t)
+  (make-center-width c (/ (* c t) 100)))
+(define (percent i)
+  (* (/ (width i) (center i)) 100))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<center_percent>>
+  (define i1 (make-center-percent 3 5))
+  (list (center i1)
+        (width i1)
+        (percent i1))
+#+end_src
+
+#+RESULTS:
+: (3 3/20 5)
+
+*Exercise 2.13*. Show that under the assumption of small percentage tolerances there is a simple formula for the approximate percentage tolerance of the product of two intervals in terms of the tolerances of the factors. You may simplify the problem by assuming that all numbers are positive.
+
+The *tolerance* is given by \(t_{x} = \frac{w_{x}}{c_{x}} = \frac{x_{u} - x_{l}}{2c_{x}}\).
+
+So we start with tolerance of the product of intervals \(x\) and \(y\) and get:
+
+\[
+\begin{align}
+t_{x \times y} &= \frac{(x \times y)_{u} - (x \times y)_{l}}{2c_{x \times y}} \\
+               &= \frac{x_{u}y_{u} - x_{l}y_{l}}{(x \times y)_{u} + (x \times y)_{l}} \\
+               &= \frac{x_{u}y_{u} - x_{l}y_{l}}{x_{u}y_{u} + x_{l}y_{l}} \\
+               &= \frac{(x_{u} - x_{l})(y_{u} + y_{l}) + (x_{u} + x_{l})(y_{u} - y_{l})}{x_{u}y_{u} + x_{l}y_{l}} \\
+               &\approx \frac{(x_{u} - x_{l})(y_{u} + y_{l}) + (x_{u} + x_{l})(y_{u} - y_{l})}{2c_{x}c_{y}} \\
+               &= \frac{x_{u} - x_{l}}{c_{x}} + \frac{y_{u} + y_{l}}{c_{y}} \\
+               &= 2t_{x} + 2t_{y}
+\end{align}
+\]
+
+Where the approximation is possible because the denominator is much larger than the numerator, from the assumption of small tolerances.
+
+*Definitions for Exercises 2.14-2.16*
+
+Lem complains that Alyssa’s program gives different answers for the two ways of computing. This is a serious complaint.
+
+#+NAME: parallel
+#+begin_src scheme
+  (define (par1 r1 r2)
+    (div-interval (mul-interval r1 r2)
+                  (add-interval r1 r2)))
+  (define (par2 r1 r2)
+    (let ((one (make-interval 1 1)))
+      (div-interval one
+                    (add-interval (div-interval one r1)
+                                  (div-interval one r2)))))
+#+end_src
+
+*[[pdfview:/home/jowalski/usbcrypt/sicp.pdf::91][Exercise 2.14]]*. Demonstrate that Lem is right. Investigate the behavior of the system on a variety of arithmetic expressions. Make some intervals A and B, and use them in computing the expressions A/A and A/B. You will get the most insight by using intervals whose width is a small percentage of the center value. Examine the results of the computation in center-percent form (see exercise 2.12).
+
+#+begin_src scheme :results replace
+  <<center_percent>>
+  <<parallel>>
+  (define ra (make-center-percent 3 3))
+  (define rb (make-center-percent 20 2))
+
+  (list (list (percent (par1 ra rb)) (percent (par2 ra rb)))
+        (list (percent (par1 ra ra)) (percent (par2 ra ra))))
+#+end_src
+
+#+RESULTS:
+: ((7.119856933888341 2.8696219545614605) (8.978458162960003 2.9999999999999876))
+
+*Exercise 2.15*. Eva Lu Ator, another user, has also noticed the different intervals computed by different but algebraically equivalent expressions. She says that a formula to compute with intervals using Alyssa’s system will produce tighter error bounds if it can be written in such a form that no variable that represents an uncertain number is repeated. Thus, she says, =par2= is a "better" program for parallel resistances than =par1=. Is she right? Why?
+
+I'm not so sure. It might make it less likely, because there will potentially be fewer multiplications/divisions. See below for what I think the real reason is.
+
+*Exercise 2.16*. Explain, in general, why equivalent algebraic expressions may lead to different answers. Can you devise an interval-arithmetic package that does not have this shortcoming, or is this task impossible? (Warning: This problem is very difficult.)
+
+We know from 2.9 that in our implementation multiplication and division of intervals do not necessarily yield intervals whose widths are a function of the initial widths. So the multiplication and division of intervals do not have the same properties as that for numbers. ??
+*** 2.2 Hierarchical Data and the Closure Property
