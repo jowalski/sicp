@@ -2413,3 +2413,301 @@ My guess:
   (1 2 3 (4 5 6)) ; X => ((1 2 3) 4 5 6)
   ((1 2 3) (4 5 6))
 #+end_src
+
+Exercise 2.27. Modify your reverse procedure of exercise 2.18 to produce a deep-reverse procedure that takes a list as argument and returns as its value the list with its elements reversed and with all sublists deep-reversed as well. For example,
+#+begin_src scheme
+  (define x (list (list 1 2) (list 3 4)))
+  x
+  ((1 2) (3 4))
+  (reverse x)
+  ((3 4) (1 2))
+  (deep-reverse x)
+  ((4 3) (2 1))
+#+end_src
+
+#+NAME: deep_reverse
+#+begin_src scheme
+  (define (deep-reverse-i l)
+    (define (iter li r)
+      (if (null? li)
+          r
+          (iter (cdr li) (cons (deep-reverse-i (car li)) r))))
+    (if (not (pair? l))
+        l
+        (iter l #nil)))
+#+end_src
+
+*Exercise 2.28*. Write a procedure fringe that takes as argument a tree (represented as a list) and returns a list whose elements are all the leaves of the tree arranged in left-to-right order. For example,
+
+#+begin_src scheme
+(define x (list (list 1 2) (list 3 4)))
+(fringe x)
+(1 2 3 4)
+(fringe (list x x))
+(1 2 3 4 1 2 3 4)
+#+end_src
+
+#+NAME: fringe
+#+begin_src scheme
+  (define (fringe l)
+    (define (iter li r)
+      (cond ((null? li) r)
+            ((not (pair? li)) (cons li r))
+            (else (iter (car li) (iter (cdr li) r)))))
+    (iter l #nil))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<fringe>>
+  (define x (list (list 1 2) (list 3 4)))
+  (fringe (list x x))
+#+end_src
+
+#+RESULTS:
+: (1 2 3 4 1 2 3 4)
+
+Exercise 2.29. A binary mobile consists of two branches, a left branch and a right branch. Each branch is a rod of a certain length, from which hangs either a weight or another binary mobile. We can represent a binary mobile using compound data by constructing it from two branches (for example, using =list=):
+
+#+NAME: make_mobile
+#+begin_src scheme
+  (define (make-mobile left right)
+    (list left right))
+#+end_src
+
+A branch is constructed from a length (which must be a number) together with a structure, which may be either a number (representing a simple weight) or another mobile:
+
+#+NAME: make_branch
+#+begin_src scheme
+  (define (make-branch length structure)
+    (list length structure))
+#+end_src
+
+a. Write the corresponding selectors =left-branch= and =right-branch=, which return the branches of a mobile, and =branch-length= and =branch-structure=, which return the components of a branch.
+
+#+NAME: br_selectors
+#+begin_src scheme
+  (define (left-branch m) (car m))
+  (define (right-branch m) (car (cdr m)))
+  (define (branch-length b) (car b))
+  (define (branch-structure b) (car (cdr b)))
+#+end_src
+
+b. Using your selectors, define a procedure =total-weight= that returns the total weight of a mobile.
+
+#+NAME: total_weight
+#+begin_src scheme
+  <<make_mobile>>
+  <<make_branch>>
+  <<br_selectors>>
+  (define (is-wt? s) (not (pair? s)))
+
+  (define (branch-weight b)
+    (let ((w (branch-structure b)))
+      (if (is-wt? w)
+          w
+          (total-weight w))))
+
+  (define (total-weight m)
+    (+ (branch-weight (left-branch m))
+       (branch-weight (right-branch m))))
+#+end_src
+
+#+NAME: test_mobile
+#+begin_src scheme
+  (define test-mobile
+    (make-mobile
+   (make-branch 3 (make-mobile
+                   (make-branch 3 2)
+                   (make-branch 4 5)))
+   (make-branch 8 3)))
+
+  (total-weight test-mobile)
+#+end_src
+
+#+begin_src scheme :results replace
+  <<total_weight>>
+  <<test_mobile>>
+#+end_src
+
+#+RESULTS:
+: 10
+
+c. A mobile is said to be balanced if the torque applied by its top-left branch is equal to that applied by its top-right branch (that is, if the length of the left rod multiplied by the weight hanging from that rod is equal to the corresponding product for the right side) and if each of the submobiles hanging off its branches is balanced. Design a predicate that tests whether a binary mobile is balanced.
+
+#+NAME: balanced
+#+begin_src scheme
+  <<total_weight>>
+  (define (is-wt? s) (not (pair? s)))
+
+  (define (branch-balanced? b)
+    (let ((s (branch-structure b)))
+      (if (is-wt? s)
+        #t
+        (balanced? s))))
+
+  (define (balanced? m)
+    (define (torque b) (* (branch-weight b) (branch-length b)))
+    (let ((lb (left-branch m))
+          (rb (right-branch m)))
+      (and (= (torque lb) (torque rb))
+         (branch-balanced? lb)
+         (branch-balanced? rb))))
+#+end_src
+
+#+NAME: balance_test
+#+begin_src scheme
+  (map balanced?
+       (list
+        (make-mobile
+         (make-branch 2 (make-mobile (make-branch 1 6) (make-branch 3 2)))
+         (make-branch 4 4))
+        (make-mobile
+         (make-branch 2 (make-mobile (make-branch 2 6) (make-branch 3 2)))
+         (make-branch 4 4))))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<balanced>>
+  <<balance_test>>
+#+end_src
+
+#+RESULTS:
+: (#t #f)
+
+d. Suppose we change the representation of mobiles so that the constructors are
+
+#+NAME: new_rep
+#+begin_src scheme
+  (define (make-mobile left right)
+    (cons left right))
+  (define (make-branch length structure)
+       (cons length structure))
+#+end_src
+
+How much do you need to change your programs to convert to the new representation?
+
+Just =right-branch= and =branch-structure= need to change I think:
+
+#+NAME: new_changes
+#+begin_src scheme
+(define (right-branch b) (cdr b))
+(define (branch-structure b) (cdr b))
+#+end_src
+
+#+begin_src scheme :results replace
+<<balanced>>
+<<new_rep>>
+
+<<new_changes>>
+<<balance_test>>
+#+end_src
+
+#+RESULTS:
+: (#t #f)
+
+#+begin_src scheme :results replace
+  <<total_weight>>
+  <<new_rep>>
+  <<new_changes>>
+  <<test_mobile>>
+#+end_src
+
+#+RESULTS:
+: 10
+
+Exercise 2.30. Define a procedure square-tree analogous to the square-list procedure of exercise 2.21. That is, square-list should behave as follows:
+
+#+begin_src scheme
+  (square-tree
+   (list 1
+  (list 2 (list 3 4) 5)
+  (list 6 7)))
+  (1 (4 (9 16) 25) (36 49))
+#+end_src
+
+Define square-tree both directly (i.e., without using any higher-order procedures) and also by using map and recursion.
+
+#+NAME: st_direct
+#+begin_src scheme
+  (define (square-tree-d l)
+    (cond ((null? l) #nil)
+          ((not (pair? l)) (* l l))
+          (else (cons (square-tree-d (car l)) (square-tree-d (cdr l))))))
+#+end_src
+
+#+NAME: test_tree
+#+begin_src scheme
+  (define test-tree
+    (list 1
+          (list 2 (list 3 4) 5)
+          (list 6 7)))
+#+end_src
+
+#+NAME: st_ho
+#+begin_src scheme
+  (define (square-tree-ho tree)
+    (map (lambda (sub-tree)
+           (if (pair? sub-tree)
+               (square-tree-ho sub-tree)
+               (* sub-tree sub-tree)))
+         tree))
+#+end_src
+
+#+begin_src scheme :results replace
+<<st_direct>>
+<<st_ho>>
+<<test_tree>>
+(list (square-tree-d test-tree) (square-tree-ho test-tree))
+#+end_src
+
+#+RESULTS:
+: ((1 (4 (9 16) 25) (36 49)) (1 (4 (9 16) 25) (36 49)))
+
+Exercise 2.31. Abstract your answer to exercise 2.30 to produce a procedure tree-map with the property that square-tree could be defined as
+
+#+NAME: st_tmap
+#+begin_src scheme
+(define (square-tree tree) (tree-map square tree))
+#+end_src
+
+#+NAME: tree_map
+#+begin_src scheme
+  (define (tree-map f tree)
+    (map (lambda (sub-tree)
+           (if (pair? sub-tree)
+               (tree-map f sub-tree)
+               (f sub-tree)))
+         tree))
+#+end_src
+
+#+begin_src scheme :results replace
+<<square>>
+<<tree_map>>
+<<st_tmap>>
+<<test_tree>>
+(square-tree test-tree)
+#+end_src
+
+#+RESULTS:
+: (1 (4 (9 16) 25) (36 49))
+
+*Exercise 2.32*. We can represent a set as a list of distinct elements, and we can represent the set of all subsets of the set as a list of lists. For example, if the set is =(1 2 3)=, then the set of all subsets is =(() (3) (2) (2 3) (1) (1 3) (1 2) (1 2 3))=. Complete the following definition of a procedure that generates the set of subsets of a set and give a clear explanation of why it works:
+
+#+NAME: subsets
+#+begin_src scheme
+  (define (subsets s)
+    (if (null? s)
+        (list #nil)
+        (let ((rest (subsets (cdr s))))
+          (append rest (map (lambda (x) (cons (car s) x)) rest)))))
+#+end_src
+
+#+begin_src scheme :results replace
+<<subsets>>
+(subsets (list 1 2 3))
+#+end_src
+
+#+RESULTS:
+: (#nil (3) (2) (2 3) (1) (1 3) (1 2) (1 2 3))
+
+When you add an element to a set, all the new possible subsets are just the previous subsets plus the new element added to each of them. And by definition, the empty set's only subset is itself.
