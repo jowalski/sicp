@@ -2351,7 +2351,7 @@ digraph G {
 #+end_src
 
 #+RESULTS:
-[[file:boxpointer.png]]
+[[file:pics/boxpointer.png]]
 
 The tree interpretation.
 
@@ -3137,3 +3137,588 @@ he is taking specific row in a new column, finding all existing solutions for (k
 
 Therefore I'd guess it would take \(T * (k - 1)^{(n - 1)}\) time, or roughly \(T * k^{n}\).
 **** 2.2.4 Example: A Picture Language
+We create a picture language with procedures that builds images that are shifted and scaled, to illustrate the power of data abstraction and closure. The language is closed under its means of combination.
+***** The picture language
+Some basic operations are ~beside~ (takes two painters and produces a new, compound painter that draws the first painter's image in the left half of the frame and the second painter's image in the right half of the frame), ~below~ (takes two painters and produces a compound painter that draws the first painter's image below the second painter's image), ~flip-vert~ (takes a painter and produces a painter that draws its image upside-down) and ~flip-horiz~ (produces a painter that draws the original painter left-to-right reversed).
+
+From these we can define these:
+
+#+NAME: painter_start
+#+begin_src scheme
+  (define (flipped-pairs painter)
+    (let ((painter2 (beside painter (flip-vert painter))))
+      (below painter2 painter2)))
+
+  (define (right-split painter n)
+    (if (= n 0)
+        painter
+        (let ((smaller (right-split painter (- n 1))))
+          (beside painter (below smaller smaller)))))
+
+
+  (define (corner-split painter n)
+    (if (= n 0)
+        painter
+        (let ((up (up-split painter (- n 1)))
+              (right (right-split painter (- n 1))))
+          (let ((top-left (beside up up))
+                (bottom-right (below right right))
+                (corner (corner-split painter (- n 1))))
+            (beside (below painter top-left)
+                    (below bottom-right corner))))))
+
+  (define (square-limit painter n)
+    (let ((quarter (corner-split painter n)))
+      (let ((half (beside (flip-horiz quarter) quarter)))
+        (below (flip-vert half) half))))
+#+end_src
+
+*Exercise 2.44*. Define the procedure ~up-split~ used by ~corner-split~.  It is similar to ~right-split~, except that it switches the roles of ~below~ and ~beside~.
+
+#+NAME: up_split
+#+begin_src scheme
+  (define (up-split painter n)
+    (if (<= n 0)
+        painter
+        (let ((smaller (up-split painter (- n 1))))
+          (below painter (beside smaller smaller)))))
+#+end_src
+***** Higher-order operations
+We can abstract patterns of combining painters by combining painter operations, using them as arguments.
+
+#+begin_src scheme
+  (define (square-of-four tl tr bl br)
+    (lambda (painter)
+      (let ((top (beside (tl painter) (tr painter)))
+            (bottom (beside (bl painter) (br painter))))
+        (below bottom top))))
+#+end_src
+
+Then you can define some of the previous operations as:
+
+#+begin_src scheme
+  (define (flipped-pairs painter)
+    (let ((combine4 (square-of-four identity flip-vert
+                                    identity flip-vert)))
+      (combine4 painter)))
+
+  (define (square-limit painter n)
+    (let ((combine4 (square-of-four flip-horiz identity
+                                    rotate180 flip-vert)))
+      (combine4 (corner-split painter n))))
+#+end_src
+
+*Exercise 2.45*. ~Right-split~ and ~up-split~ can be expressed as instances of a general splitting operation.  Define a procedure ~split~ with the property that evaluating
+
+#+begin_src scheme
+  (define right-split (split beside below))
+  (define up-split (split below beside))
+#+end_src
+
+produces procedures ~right-split~ and ~up-split~ with the same behaviors as the ones already defined.
+
+#+NAME: split
+#+begin_src scheme
+  (define (split l1 l2)
+    (define (split-fun painter n)
+      (if (= n 0)
+          painter
+          (let ((smaller (split-fun painter (- n 1))))
+            (l1 painter (l2 smaller smaller)))))
+    split-fun)
+#+end_src
+***** Frames
+A *frame* can be described by three vectors--an origin and two edge vectors. The constructor ~make-frame~ takes three vectors and produces a frame.
+
+We can create a coordinate map for a frame, that returns a procedure that takes a coordinate in the unit square and maps it to a position on the frame.
+
+#+NAME: frame_coord_map
+#+begin_src scheme
+  <<frame>>
+  (define (frame-coord-map frame)
+    (lambda (v)
+      (add-vect
+       (origin-frame frame)
+       (add-vect (scale-vect (xcor-vect v)
+                             (edge1-frame frame))
+                 (scale-vect (ycor-vect v)
+                             (edge2-frame frame))))))
+#+end_src
+
+*Exercise 2.46:* A two-dimensional vector v running from the origin to a point can be represented as a pair consisting of an x-coordinate and a y-coordinate.  Implement a data abstraction for vectors by giving a constructor ~make-vect~ and corresponding selectors ~xcor-vect~ and ~ycor-vect~.  In terms of your selectors and constructor, implement procedures ~add-vect~, ~sub-vect~, and ~scale-vect~ that perform the operations vector addition, vector subtraction, and multiplying a vector by a scalar:
+
+\[
+\begin{align}
+(x_1, y_1) + (x_2, y_2) &= (x_1 + x_2, y_1 + y_2) \\
+(x_1, y_1) - (x_2, y_2) &= (x_1 - x_2, y_1 - y_2) \\
+s \cdot (x, y) &= (sx, sy)
+\end{align}
+\]
+
+#+NAME: vect
+#+begin_src scheme
+  (define (make-vect x y) (cons x y))
+  (define (xcor-vect v) (car v))
+  (define (ycor-vect v) (cdr v))
+
+  (define (add-vect a b)
+    (make-vect (+ (xcor-vect a) (xcor-vect b))
+               (+ (ycor-vect a) (ycor-vect b))))
+
+  (define (sub-vect a b)
+    (add-vect a (make-vect (- (xcor-vect b)) (- (ycor-vect b)))))
+
+  (define (scale-vect s v)
+    (make-vect (* s (xcor-vect v)) (* s (ycor-vect v))))
+#+end_src
+
+*Exercise 2.47*. Here are two possible constructors for frames:
+
+#+begin_src scheme
+  (define (make-frame origin edge1 edge2)
+    (list origin edge1 edge2))
+
+  (define (make-frame origin edge1 edge2)
+    (cons origin (cons edge1 edge2)))
+#+end_src
+
+For each constructor supply the appropriate selectors to produce an implementation for frames.
+
+#+begin_src scheme
+  (define (origin-frame f)
+    (car f))
+
+  (define (edge1-frame f)
+    (cadr f))
+
+  (define (edge2-frame1 f)
+    (caddr f))
+
+  (define (edge2-frame2 f)
+    (cddr f))
+#+end_src
+***** Painters
+A painter is a procedure that, given a frame, draws an image shifted and scaled to fit the frame. The details of primitive painters depend on particulars of the graphics system and the type of image.
+
+For instance, if we have a primitive ~draw-line~ that draws a line on the screen, we can create a painter for line drawings, defined by lists of line segments, given as pairs of coordinates.
+
+#+NAME: segments_painter
+#+begin_src scheme
+  <<sdl_setup>>
+  <<segment>>
+  <<vect>>
+  <<frame_coord_map>>
+  (define (segments->painter segment-list)
+    (lambda (frame)
+      (for-each
+       (lambda (segment)
+         (draw-line
+          ((frame-coord-map frame) (start-segment segment))
+          ((frame-coord-map frame) (end-segment segment))))
+       segment-list)))
+#+end_src
+
+*Exercise 2.48:* A directed line segment in the plane can be represented as a pair of vectors--the vector running from the origin to the start-point of the segment, and the vector running from the origin to the end-point of the segment.  Use your vector representation from Exercise 2-46 to define a representation for segments with a constructor ~make-segment~ and selectors ~start-segment~ and ~end-segment~.
+
+#+NAME: segment
+#+begin_src scheme
+  (define (make-segment start-vect end-vect)
+    (list start-vect end-vect))
+
+  (define (start-segment s) (car s))
+  (define (end-segment s) (cadr s))
+#+end_src
+
+*Exercise 2.49*. Use ~segments->painter~ to define the following primitive painters:
+
+   a. The painter that draws the outline of the designated frame.
+
+   b. The painter that draws an X by connecting opposite corners of the frame.
+
+   c. The painter that draws a diamond shape by connecting the midpoints of the sides of the frame.
+
+   d. The ~wave~ painter.
+
+   #+NAME: painters
+   #+begin_src scheme
+     <<segments_painter>>
+     (define (four-points-painter f x1f x2f x3f x4f)
+       (let ((x1 (x1f f))
+             (x2 (x2f f))
+             (x3 (x3f f))
+             (x4 (x4f f)))
+         (segments->painter
+          (list (make-segment x1 x2) (make-segment x2 x3)
+                (make-segment x3 x4) (make-segment x4 x1)))))
+
+     (define (corner-frame f)
+       (add-vect (edge1-frame f) (edge2-frame f)))
+
+     (define (outline f)
+       ((four-points-painter f origin-frame edge1-frame
+                             corner-frame edge2-frame) f))
+
+     (define (x-painter f)
+       ((segments->painter
+         (list (make-segment (origin-frame f) (corner-frame f))
+               (make-segment (edge1-frame f) (edge2-frame f)))) f))
+
+     (define (midpoint a b) (scale-vect 0.5 (add-vect a b)))
+
+     (define (diamond-painter f)
+       (define (midpointf f1 f2)
+         (lambda (vect) (midpoint (f1 f) (f2 f))))
+       ((four-points-painter f (midpointf origin-frame edge1-frame)
+                             (midpointf edge1-frame corner-frame)
+                             (midpointf corner-frame edge2-frame)
+                             (midpointf edge2-frame origin-frame)) f))
+
+     (define (seglist l)
+       (make-segment (make-vect (car l) (cadr l))
+                     (make-vect (caddr l) (cadddr l))))
+
+     ;; a list of vectors, turned into a list of segments
+     (define (segpath l)
+       (if (or (null? l) (null? (cdr l)))
+           #nil
+           (append (list (make-segment (car l) (cadr l))) (segpath (cdr l)))))
+
+     (define mv make-vect)
+     (define wave-segments
+       (let ((tleft (segpath
+                     (list (mv 0 0.8) (mv 0.2 0.55) (mv 0.3 0.6)
+                           (mv 0.4 0.6) (mv 0.35 0.8) (mv 0.4 1))))
+             (tright (segpath
+                      (list (mv 0.6 1) (mv 0.65 0.8) (mv 0.6 0.6)
+                            (mv 0.75 0.6) (mv 1 0.3))))
+             (bright (segpath
+                      (list (mv 1 0.15) (mv 0.6 0.45) (mv 0.7 0))))
+             (bottom (segpath
+                      (list (mv 0.6 0) (mv 0.5 0.3) (mv 0.4 0))))
+             (bleft (segpath
+                     (list (mv 0.3 0) (mv 0.35 0.5) (mv 0.3 0.55)
+                           (mv 0.2 0.35) (mv 0 0.6)))))
+         (append tleft tright bright bottom bleft)))
+
+     (define wave (segments->painter wave-segments))
+   #+end_src
+
+   #+NAME: frame
+   #+begin_src scheme
+     (define (make-frame origin edge1 edge2)
+       (list origin edge1 edge2))
+     (define (origin-frame f)
+       (car f))
+
+     (define (edge1-frame f)
+       (cadr f))
+
+     (define (edge2-frame f)
+       (caddr f))
+    #+end_src
+
+   #+begin_src scheme
+     <<painters>>
+     (define screenf (make-frame (mv 0 0) (mv 1 0) (mv 0 1)))
+     (wave screenf)
+     (clear-screen)
+     (outline screenf)
+     (clear-screen)
+     (x-painter screenf)
+     (clear-screen)
+     (diamond-painter screenf)
+   #+end_src
+
+
+   The setup for graphics on my system, requires sdl libraryfor scheme and system installed.
+
+   #+NAME: sdl_setup
+   #+begin_src scheme
+     (define (init-gfx)
+       (use-modules ((sdl sdl) #:prefix SDL:)
+                    ((sdl gfx) #:prefix GFX:))
+       (SDL:init 'video)
+
+       (let* ((DEPTH 32)
+              (width 640)
+              (height 640)
+              (SCREEN (begin (SDL:set-video-mode width height DEPTH)
+                             (SDL:get-video-surface)))
+              (cscreen (lambda () (SDL:fill-rect SCREEN #f #xffffff)
+                               (SDL:flip)))
+              (random-rgb (lambda () (random #x1000000)))
+              (color (random-rgb))
+              (rnd (lambda (x) (inexact->exact (round x))))
+              (nrmx (lambda (x) (rnd (* x width))))
+              (nrmy (lambda (y) (rnd (- height (* y height)))))
+              (barest-hint (logior #x08 (logand color (lognot #xff)))))
+         (cscreen)
+         (list (lambda (p1 p2)
+                 ;; lambda (x1 y1 x2 y2)
+                 (GFX:draw-thick-line SCREEN (nrmx (xcor-vect p1)) (nrmy (ycor-vect p1))
+                                      (nrmx (xcor-vect p2)) (nrmy (ycor-vect p2)) 3 color)
+                 ;; (GFX:draw-line SCREEN x1 y1 x2 y2 color)
+                 (SDL:flip))
+               cscreen
+               SCREEN
+               (lambda (filename)
+                 (SDL:save-bmp SCREEN filename)
+                 (quit-gfx))))
+       )
+
+     (define gfx-state (init-gfx))
+
+     ;; takes arguments on the normalized (x, y) scale (origin = (0,0), top right
+     ;; corner = (1,1))
+     (define draw-line (car gfx-state))
+     (define clear-screen (cadr gfx-state))
+     ;; (define SCREEN (caddr gfx-state))
+     (define save-screen (cadddr gfx-state))
+     (define (quit-gfx) (SDL:quit))
+   #+end_src
+***** Transforming and combining painters
+
+We can define operations on procedures, such as ~flip-vert~ or ~beside~ based on a procedure ~transform_painter~, that a painter and coordinates of a new frame to project onto.
+
+#+NAME: transform_painter
+#+begin_src scheme
+  (define (transform-painter painter origin corner1 corner2)
+    (lambda (frame)
+      (let ((m (frame-coord-map frame)))
+        (let ((new-origin (m origin)))
+          (painter
+           (make-frame new-origin
+                       (sub-vect (m corner1) new-origin)
+                       (sub-vect (m corner2) new-origin)))))))
+#+end_src
+
+#+NAME: transforms
+#+begin_src scheme
+  (define (flip-vert painter)
+    (transform-painter painter
+                       (make-vect 0.0 1.0)   ; new `origin'
+                       (make-vect 1.0 1.0)   ; new end of `edge1'
+                       (make-vect 0.0 0.0))) ; new end of `edge2'
+
+  (define (shrink-to-upper-right painter)
+    (transform-painter painter
+                       (make-vect 0.5 0.5)
+                       (make-vect 1.0 0.5)
+                       (make-vect 0.5 1.0)))
+
+  (define (rotate90 painter)
+    (transform-painter painter
+                       (make-vect 1.0 0.0)
+                       (make-vect 1.0 1.0)
+                       (make-vect 0.0 0.0)))
+
+  (define (squash-inwards painter)
+    (transform-painter painter
+                       (make-vect 0.0 0.0)
+                       (make-vect 0.65 0.35)
+                       (make-vect 0.35 0.65)))
+#+end_src
+
+We could also define compound painters that transform multiple painters, for example ~beside~:
+
+#+NAME: beside
+#+begin_src scheme
+  (define (beside painter1 painter2)
+    (let ((split-point (make-vect 0.5 0.0)))
+      (let ((paint-left
+             (transform-painter painter1
+                                (make-vect 0.0 0.0)
+                                split-point
+                                (make-vect 0.0 1.0)))
+            (paint-right
+             (transform-painter painter2
+                                split-point
+                                (make-vect 1.0 0.0)
+                                (make-vect 0.5 1.0))))
+        (lambda (frame)
+          (paint-left frame)
+          (paint-right frame)))))
+#+end_src
+
+*Exercise 2.50:* Define the transformation `flip-horiz', which flips painters horizontally, and transformations that rotate painters counterclockwise by 180 degrees and 270 degrees.
+
+#+NAME: transforms_2
+#+begin_src scheme
+  (define (flip-horiz painter)
+    (transform-painter painter
+                       (make-vect 1.0 0.0)
+                       (make-vect 0.0 0.0)
+                       (make-vect 1.1 1.1)))
+
+  (define (rotate180 painter)
+    (transform-painter painter
+                       (make-vect 1.0 1.0)
+                       (make-vect 0.0 1.0)
+                       (make-vect 1.0 0.0)))
+
+  (define (rotate270 painter)
+    (transform-painter painter
+                       (make-vect 0.0 1.0)
+                       (make-vect 0.0 0.0)
+                       (make-vect 1.0 1.0)))
+#+end_src
+
+#+begin_src scheme
+     <<painters>>
+     <<transform_painter>>
+     <<transforms_2>>
+     (define screenf (make-frame (mv 0 0) (mv 1 0) (mv 0 1)))
+     ((flip-horiz wave) screenf)
+     (clear-screen)
+     ((rotate180 wave) screenf)
+     (clear-screen)
+     ((rotate270 wave) screenf)
+#+end_src
+
+*Exercise 2.51*. Define the ~below~ operation for painters. ~below~ takes two painters as arguments.  The resulting painter, given a frame, draws with the first painter in the bottom of the frame and with the second painter in the top.  Define ~below~ in two different ways--first by writing a procedure that is analogous to the `beside' procedure given above, and again in terms of `beside' and suitable rotation operations (from Exercise 2-50).
+
+#+NAME: below
+#+begin_src scheme
+  (define (below painter1 painter2)
+    (let ((split-point (make-vect 0.0 0.5)))
+      (let ((paint-bottom
+             (transform-painter painter1
+                                (make-vect 0.0 0.0)
+                                (make-vect 1.0 0.0)
+                                split-point))
+            (paint-top
+             (transform-painter painter2
+                                split-point
+                                (make-vect 1.0 0.5)
+                                (make-vect 0.0 1.0))))
+        (lambda (frame)
+          (paint-bottom frame)
+          (paint-top frame)))))
+
+  (define (below-r painter1 painter2)
+    (rotate90 (beside (rotate270 painter1) (rotate270 painter2))))
+#+end_src
+
+#+begin_src scheme
+  <<painters>>
+  <<transform_painter>>
+  <<beside>>
+  <<transforms>>
+  <<transforms_2>>
+  <<below>>
+  (define screenf (make-frame (mv 0 0) (mv 1 0) (mv 0 1)))
+  ((below wave wave) screenf)
+  (clear-screen)
+  ((below-r wave wave) screenf)
+  (save-screen "pics/2_2_wavebelow.bmp")
+#+end_src
+
+[[file:pics/2_2_wavebelow.bmp]]
+***** Levels of language for robust design
+By using procedural representations for underlying data objects, we can take advantage of the closure property to easily build complex designs. Another idea we've seen is *stratified design*, combining parts at each level that are primitive to that level, so that the language has primitives, means of combination, and means of abstraction appropriate to that level of detail.
+
+Stratified design helps make programs *robust*, likely that small changes in specification will require small changes in the program.
+
+*Exercise 2.52:* Make changes to the square limit of `wave' shown in *Note Figure 2-9:: by working at each of the levels described above.  In particular:
+
+a. Add some segments to the primitive `wave' painter of Exercise 2-49 (to add a smile, for example).
+
+#+NAME: wave_smile
+#+begin_src scheme
+  (define eyes-and-smile
+    (let ((left-eye (segpath (list (mv 0.45 0.85) (mv 0.47 0.85))))
+          (right-eye (segpath (list (mv 0.53 0.85) (mv 0.55 0.85))))
+          (smile (segpath
+                  (list (mv 0.42 0.72) (mv 0.45 0.69)
+                        (mv 0.5 0.67) (mv 0.55 0.69) (mv 0.58 0.72)))))
+      (append left-eye right-eye smile)))
+
+  (define wave-smile (segments->painter (append wave-segments eyes-and-smile)))
+#+end_src
+
+#+begin_src scheme
+<<painters>>
+  (define screenf (make-frame (mv 0 0) (mv 1 0) (mv 0 1)))
+  (wave-smile screenf)
+#+end_src
+
+b. Change the pattern constructed by ~corner-split~ (for example, by using only one copy of the ~up-split~ and ~right-split~ images instead of two).
+
+c. Modify the version of `square-limit' that uses `square-of-four' so as to assemble the corners in a different pattern.  (For example, you might make the big Mr. Rogers look outward from each corner of the square.)
+*** 2.3 Symbolic Data
+**** 2.3.1 Quotation
+We can also *quote* data objects in the language, using the single quote symbol ~'~, which is all we need to quote next object. ~eq?~ tests whether two symbols are the same.
+
+We can create an operation that returns the sublist of the list beginning with the first occurrence of the symbol.
+
+#+begin_src scheme
+  (define (memq item x)
+    (cond ((null? x) false)
+          ((eq? item (car x)) x)
+          (else (memq item (cdr x)))))
+#+end_src
+
+*Exercise 2.53:* What would the interpreter print in response to evaluating each of the following expressions?
+
+#+begin_src scheme
+  (list 'a 'b 'c)
+  (list (list 'george))
+  (cdr '((x1 x2) (y1 y2)))
+  (cadr '((x1 x2) (y1 y2)))
+  (pair? (car '(a short list)))
+  (memq 'red '((red shoes) (blue socks)))
+  (memq 'red '(red shoes blue socks))
+#+end_src
+
+~(a b c)~
+~((george))~
+~((y1 y2))~
+~(y1 y2)~
+~#f~
+~#f~
+~(red shoes blue socks)~
+
+*Exercise 2.54:* Two lists are said to be ~equal?~ if they contain equal elements arranged in the same order.  For example,
+
+#+begin_src scheme :results replace
+  <<equal>>
+  (equal? '(this is a list) '(this is a list))
+#+end_src
+
+#+RESULTS:
+: #t
+
+is true, but
+
+#+begin_src scheme :results replace
+  <<equal>>
+  (equal? '(this is a list) '(this (is a) list))
+#+end_src
+
+#+RESULTS:
+: #f
+
+is false.  To be more precise, we can define ~equal?~ recursively in terms of the basic ~eq?~ equality of symbols by saying that \(a\) and \(b\) are ~equal?~ if they are both symbols and the symbols are ~eq?~, or if they are both lists such that ~(car a)~ is ~equal?~ to ~(car b)~ and ~(cdr a)~ is ~equal?~ to ~(cdr b)~.  Using this idea, implement ~equal?~ as a procedure.
+
+#+NAME: equal
+#+begin_src scheme
+  (define (equal? a b)
+    (or (and (null? a) (null? b))
+        (and (symbol? a) (symbol? b) (eq? a b))
+        (and (pair? a) (pair? b)
+             (equal? (car a) (car b))
+             (equal? (cdr a) (cdr b)))))
+#+end_src
+
+*Exercise 2.55:* Eva Lu Ator types to the interpreter the expression
+
+#+begin_src scheme
+  (car ''abracadabra)
+#+end_src
+
+To her surprise, the interpreter prints back `quote'.  Explain.
+
+Answer: it looks like ~'~ is just an abbreviation for the function ~quote~, so ~(car (quote (quote abracadabra)))~ is the same as ~(car '(quote abracadabra))~, which should naturally be ~quote~.
+
+Interestingly, but appropriately, ~quote~ prevents any internal values from being evaluated.
+**** 2.3.2 Example: Symbolic Differentiation
