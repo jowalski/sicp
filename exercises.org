@@ -3722,3 +3722,290 @@ Answer: it looks like ~'~ is just an abbreviation for the function ~quote~, so ~
 
 Interestingly, but appropriately, ~quote~ prevents any internal values from being evaluated.
 **** 2.3.2 Example: Symbolic Differentiation
+We develop a symbolic-differentiation program, with expressions represented as symbols, in lisp-style.
+
+Note the basic algorithm for differentiation of constants, sums and products.
+
+#+NAME: deriv_orig
+#+begin_src scheme
+  (define (deriv exp var)
+    (cond ((number? exp) 0)
+          ((variable? exp)
+           (if (same-variable? exp var) 1 0))
+          ((sum? exp)
+           (make-sum (deriv (addend exp) var)
+                     (deriv (augend exp) var)))
+          ((product? exp)
+           (make-sum
+            (make-product (multiplier exp)
+                          (deriv (multiplicand exp) var))
+            (make-product (deriv (multiplier exp) var)
+                          (multiplicand exp))))
+          (else
+           (error "unknown expression type -- DERIV" exp))))
+  (define (variable? x) (symbol? x))
+  (define (same-variable? v1 v2)
+    (and (variable? v1) (variable? v2) (eq? v1 v2)))
+  (define (make-sum a1 a2) (list '+ a1 a2))
+  (define (make-product m1 m2) (list '* m1 m2))
+  (define (sum? x)
+    (and (pair? x) (eq? (car x) '+)))
+  (define (addend s) (cadr s))
+  (define (augend s) (caddr s))
+  (define (product? x)
+    (and (pair? x) (eq? (car x) '*)))
+  (define (multiplier p) (cadr p))
+  (define (multiplicand p) (caddr p))
+#+end_src
+
+This doesn't reduce answers to their simplest form, however. We can make changes to ~make-sum~ to handle this, by summing terms that are numbers.
+
+#+NAME: make_sum
+#+begin_src scheme
+  (define (make-sum a1 a2)
+    (cond ((=number? a1 0) a2)
+          ((=number? a2 0) a1)
+          ((and (number? a1) (number? a2)) (+ a1 a2))
+          (else (list '+ a1 a2))))
+  (define (=number? exp num)
+          (and (number? exp) (= exp num)))
+#+end_src
+
+And similarly for ~make-product~:
+
+#+NAME: make_product
+#+begin_src scheme
+  (define (make-product m1 m2)
+    (cond ((or (=number? m1 0) (=number? m2 0)) 0)
+          ((=number? m1 1) m2)
+          ((=number? m2 1) m1)
+          ((and (number? m1) (number? m2)) (* m1 m2))
+          (else (list '* m1 m2))))
+#+end_src
+
+*Exercise 2.56:* Show how to extend the basic differentiator to handle more kinds of expressions.  For instance, implement the differentiation rule
+
+\[
+\frac{d(u^{n})}{dx} = nu^{n-1}\left(\frac{du}{dx}\right)
+\]
+
+by adding a new clause to the ~deriv~ program and defining appropriate procedures ~exponentiation?~, ~base~, ~exponent~, and ~make-exponentiation~.  (You may use the symbol ~**~ to denote exponentiation.)  Build in the rules that anything raised to the power 0 is 1 and anything raised to the power 1 is the thing itself.
+
+#+NAME: deriv_exp
+#+begin_src scheme
+  <<deriv_orig>>
+  <<make_sum>>
+  <<make_product>>
+  (define (deriv exp var)
+    (cond ((number? exp) 0)
+          ((variable? exp)
+           (if (same-variable? exp var) 1 0))
+          ((sum? exp)
+           (make-sum (deriv (addend exp) var)
+                     (deriv (augend exp) var)))
+          ((product? exp)
+           (make-sum
+            (make-product (multiplier exp)
+                          (deriv (multiplicand exp) var))
+            (make-product (deriv (multiplier exp) var)
+                          (multiplicand exp))))
+          ((exponentiation? exp)
+           (let ((n (exponent exp)))
+            (make-product
+             (make-product n
+                           (make-exponentiation (base exp) (- n 1)))
+                           (deriv (base exp) var))))
+          (else
+           (error "unknown expression type -- DERIV" exp))))
+
+  (define (exponentiation? x)
+    (and (pair? x) (eq? (car x) '**)))
+  (define (exponent x) (caddr x))
+  (define (make-exponentiation u n)
+    (cond ((=number? n 0) 1)
+          ((=number? n 1) u)
+          (else (list '** u n))))
+  (define (base x) (cadr x))
+#+end_src
+
+#+begin_src scheme :results replace
+<<deriv_exp>>
+(deriv '(* (* x y) (+ x 3)) 'x)
+#+end_src
+
+#+RESULTS:
+: (+ (* x y) (* y (+ x 3)))
+
+#+begin_src scheme :results replace
+<<deriv_exp>>
+(deriv '(+ (** x 3) (* 5 (** x 2))) 'x)
+#+end_src
+
+#+RESULTS:
+: (+ (* 3 (** x 2)) (* 5 (* 2 x)))
+
+*Exercise 2.57:* Extend the differentiation program to handle sums and products of arbitrary numbers of (two or more) terms.  Then the last example above could be expressed as
+
+#+begin_src scheme
+     (deriv '(* x y (+ x 3)) 'x)
+#+end_src
+
+Try to do this by changing only the representation for sums and products, without changing the ~deriv~ procedure at all.  For example, the ~addend~ of a sum would be the first term, and the ~augend~ would be the sum of the rest of the terms.
+
+#+NAME: sum_arb
+#+begin_src scheme
+  (define (augend s)
+    (let ((t3 (cddr s)))
+      (if (null? (cdr t3))
+        (car t3)
+        (append (make-sum (car t3) (cadr t3)) (cddr t3)))))
+  (define (multiplicand p)
+    (if (null? (cdddr p))
+        (caddr p)
+        (append (make-product (caddr p) (cadddr p)) (cddddr p))))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<deriv_exp>>
+  <<sum_arb>>
+  (deriv '(* x y (+ x 3)) 'x)
+#+end_src
+
+#+RESULTS:
+: (+ (* x y) (* y (+ x 3)))
+
+*Exercise 2.58:* Suppose we want to modify the differentiation program so that it works with ordinary mathematical notation, in which `+' and `*' are infix rather than prefix operators.  Since the differentiation program is defined in terms of abstract data, we can modify it to work with different representations of expressions solely by changing the predicates, selectors, and constructors that define the representation of the algebraic expressions on which the differentiator is to operate.
+
+a. Show how to do this in order to differentiate algebraic expressions presented in infix form, such as ~(x + (3 * (x + (y + 2))))~.  To simplify the task, assume that ~+~ and ~*~ always take two arguments and that expressions are fully parenthesized.
+
+#+NAME: infix
+#+begin_src scheme
+  <<deriv_exp>>
+  ;; these define infix vs prefix notation
+  (define (list-op op t1 t2) (list t1 op t2))
+  (define (op? symb)
+    (lambda (x) (and (pair? x) (eq? (cadr x) symb))))
+  (define (first-term x) (car x))
+  ;; (define (second-term x) (caddr x))
+
+  (define addend first-term)
+  (define multiplier first-term)
+  (define base first-term)
+
+  (define (make-sum a1 a2)
+    (cond ((=number? a1 0) a2)
+          ((=number? a2 0) a1)
+          ((and (number? a1) (number? a2)) (+ a1 a2))
+          (else (list-op '+ a1 a2))))
+  (define (make-product m1 m2)
+    (cond ((or (=number? m1 0) (=number? m2 0)) 0)
+          ((=number? m1 1) m2)
+          ((=number? m2 1) m1)
+          ((and (number? m1) (number? m2)) (* m1 m2))
+          (else (list-op '* m1 m2))))
+  (define (make-exponentiation u n)
+    (cond ((=number? n 0) 1)
+          ((=number? n 1) u)
+          (else (list-op '** u n))))
+
+  (define sum? (op? '+))
+  (define product? (op? '*))
+  (define exponentiation? (op? '**))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<infix>>
+  (deriv '(x + (3 * (x + (y + 2)))) 'x)
+#+end_src
+
+#+RESULTS:
+: 4
+
+#+begin_src scheme :results replace
+<<infix>>
+  (deriv '((x * y) * (x + 3)) 'x)
+#+end_src
+
+#+RESULTS:
+: ((x * y) + (y * (x + 3)))
+
+b. The problem becomes substantially harder if we allow standard algebraic notation, such as ~(x + 3 * (x + y + 2))~, which drops unnecessary parentheses and assumes that multiplication is done before addition.  Can you design appropriate predicates, selectors, and constructors for this notation such that our derivative program still works?
+
+#+NAME: infix_noparen
+#+begin_src scheme
+  <<infix>>
+  ;; operator precedence functions
+  (define op-order '(+ * **))
+  (define (op-value o)
+    (define (iter olist n)
+      (if (and (pair? olist) (eq? o (car olist)))
+          n
+          (iter (cdr olist) (+ n 1))))
+    (iter op-order 1))
+  (define (cmp-op o1 o2)
+    (<= (op-value o1) (op-value o2)))
+
+  ;; expression splitting
+  (define op-term cadr)
+  (define (op-pos x)
+    (define (iter x op pos)
+      (if (or (null? x) (null? (cdr x)))
+          pos
+          (let ((cur-op (op-term x)))
+            (if (cmp-op op cur-op)
+              (iter (cddr x) op pos)
+              (iter (cddr x) cur-op (+ pos 2))))))
+    (iter x (op-term x) 2))
+  (define (parens? exp)
+    (and (pair? exp) (null? (cdr exp)) (not (null? (car exp)))))
+  (define (no-parens exp)
+    (if (not (parens? exp))
+        exp
+        (no-parens (car exp))))
+  (define (split-at-pos x pos)
+    (define (iter left right i)
+      (if (= i pos)
+          (list (car right) (reverse left) (cdr right))
+          (iter (cons (car right) left) (cdr right) (+ i 1))))
+    (let ((split-w-parens (iter #nil x 1)))
+      (list (car split-w-parens)
+            (no-parens (cadr split-w-parens))
+            (no-parens (caddr split-w-parens)))))
+
+  ;; main function, splits an expression into 3 parts:
+  ;; 1 - the operator with highest precedence, 2 - the expression
+  ;; to the left of that operator, 3 - the expression to the right
+  (define (split-exp x)
+    (split-at-pos x (op-pos x)))
+
+  ;; generic operations
+  (define (first-term exp)
+    (cadr (split-exp exp)))
+  (define (operator exp)
+    (car (split-exp exp)))
+  (define (other-term exp)
+    (caddr (split-exp exp)))
+
+  (define (op? symb)
+    (lambda (x)
+            (and (pair? x) (eq? (operator x) symb))))
+  (define sum? (op? '+))
+  (define product? (op? '*))
+  (define exponentiation? (op? '**))
+
+  (define augend other-term)
+  (define multiplicand other-term)
+  (define exponent other-term)
+
+  (define addend first-term)
+  (define multiplier first-term)
+  (define base first-term)
+#+end_src
+
+#+begin_src scheme :results replace
+<<infix_noparen>>
+(deriv '(x + 3 * (x + y + 2)) 'x)
+#+end_src
+
+#+RESULTS:
+: 4
