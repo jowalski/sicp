@@ -4371,3 +4371,271 @@ If implementing with an unordered list (not the most efficient), the procedure m
            (lookup given-key (right-branch records)))))
 #+end_src
 **** 2.3.4 Example: Huffman Encoding Trees
+Huffman trees are a way of encoding and compressing data.
+***** Representing Huffman trees
+
+#+NAME: leaf
+#+begin_src scheme
+  (define (make-leaf symbol weight)
+    (list 'leaf symbol weight))
+
+  (define (leaf? object)
+    (eq? (car object) 'leaf))
+
+  (define (symbol-leaf x) (cadr x))
+
+  (define (weight-leaf x) (caddr x))
+#+end_src
+
+#+NAME: huff_tree
+#+begin_src scheme
+  (define (make-code-tree left right)
+    (list left right
+          (append (symbols left) (symbols right))
+          (+ (weight left) (weight right))))
+
+  (define (left-branch tree) (car tree))
+
+  (define (right-branch tree) (cadr tree))
+
+  (define (symbols tree)
+    (if (leaf? tree)
+        (list (symbol-leaf tree))
+        (caddr tree)))
+
+  (define (weight tree)
+    (if (leaf? tree)
+        (weight-leaf tree)
+        (cadddr tree)))
+#+end_src
+
+#+NAME: decode_huff_tree
+#+begin_src scheme
+  (define (decode bits tree)
+    (define (decode-1 bits current-branch)
+      (if (null? bits)
+          '()
+          (let ((next-branch
+                 (choose-branch (car bits) current-branch)))
+            (if (leaf? next-branch)
+                (cons (symbol-leaf next-branch)
+                      (decode-1 (cdr bits) tree))
+                (decode-1 (cdr bits) next-branch)))))
+    (decode-1 bits tree))
+
+  (define (choose-branch bit branch)
+    (cond ((= bit 0) (left-branch branch))
+          ((= bit 1) (right-branch branch))
+          (else (error "bad bit -- CHOOSE-BRANCH" bit))))
+#+end_src
+***** Sets of weighted elements
+Since the code-generating algorithm requires repeatedly finding the smallest item in a set, it's convenient to use an ordered list.
+
+#+NAME: leaf_set
+#+begin_src scheme
+  (define (adjoin-set x set)
+    (cond ((null? set) (list x))
+          ((< (weight x) (weight (car set))) (cons x set))
+          (else (cons (car set)
+                      (adjoin-set x (cdr set))))))
+  (define (make-leaf-set pairs)
+    (if (null? pairs)
+        '()
+        (let ((pair (car pairs)))
+          (adjoin-set (make-leaf (car pair) (cadr pair))
+                      (make-leaf-set (cdr pairs))))))
+#+end_src
+
+*Exercise 2.67*. Define an encoding tree and a sample message:
+
+#+NAME: huff_sample
+#+begin_src scheme
+  (define sample-tree
+    (make-code-tree (make-leaf 'A 4)
+                    (make-code-tree
+                     (make-leaf 'B 2)
+                     (make-code-tree (make-leaf 'D 1)
+                                     (make-leaf 'C 1)))))
+
+  (define sample-message '(0 1 1 0 0 1 0 1 0 1 1 1 0))
+#+end_src
+
+Use the ~decode~ procedure to decode the message, and give the result.
+
+#+begin_src scheme :results replace
+  <<leaf>>
+  <<huff_tree>>
+  <<decode_huff_tree>>
+  <<leaf_set>>
+  <<huff_sample>>
+  (decode sample-message sample-tree)
+#+end_src
+
+#+RESULTS:
+: (A D A B B C A)
+
+*Exercise 2.68*. The ~encode~ procedure takes as arguments a message and a tree and produces the list of bits that gives the encoded message.
+
+#+NAME: encode
+#+begin_src scheme
+  (define (encode message tree)
+    (if (null? message)
+        '()
+        (append (encode-symbol (car message) tree)
+                (encode (cdr message) tree))))
+#+end_src
+
+~encode-symbol~ is a procedure, which you must write, that returns the list of bits that encodes a given symbol according to a given tree.  You should design ~encode-symbol~ so that it signals an error if the symbol is not in the tree at all.  Test your procedure by encoding the result you obtained in *Note Exercise 2-67 with the sample tree and seeing whether it is the same as the original sample message.
+
+#+NAME: encode_symbol
+#+begin_src scheme
+  (define (encode-symbol symbol tree)
+    (cond ((leaf? tree) '())
+          ((symbol-in-tree? symbol (left-branch tree))
+           (cons 0 (encode-symbol symbol (left-branch tree))))
+          ((symbol-in-tree? symbol (right-branch tree))
+           (cons 1 (encode-symbol symbol (right-branch tree))))
+          (else (error "symbol not in tree -- ENCODE-SYMBOL"))))
+
+  (define (symbol-in-tree? symbol tree)
+    (define (in-list l)
+      (if (null? l)
+          #f
+          (or (eq? symbol (car l)) (in-list (cdr l)))))
+    (in-list (symbols tree)))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<leaf>>
+  <<huff_tree>>
+  <<decode_huff_tree>>
+  <<leaf_set>>
+  <<huff_sample>>
+  <<encode>>
+  <<encode_symbol>>
+  (encode '(A D A B B C A) sample-tree)
+#+end_src
+
+#+RESULTS:
+: (0 1 1 0 0 1 0 1 0 1 1 1 0)
+
+*Exercise 2.69:* The following procedure takes as its argument a list of symbol-frequency pairs (where no symbol appears in more than one pair) and generates a Huffman encoding tree according to the Huffman algorithm.
+
+#+NAME: gen_huff_tree
+#+begin_src scheme
+  (define (generate-huffman-tree pairs)
+    (successive-merge (make-leaf-set pairs)))
+#+end_src
+
+~Make-leaf-set~ is the procedure given above that transforms the list of pairs into an ordered set of leaves.  ~Successive-merge~ is the procedure you must write, using ~make-code-tree~ to successively merge the smallest-weight elements of the set until there is only one element left, which is the desired Huffman tree. (This procedure is slightly tricky, but not really complicated. If you find yourself designing a complex procedure, then you are almost certainly doing something wrong.  You can take significant advantage of the fact that we are using an ordered set representation.)
+
+#+NAME: successive_merge
+#+begin_src scheme
+  (define (successive-merge leaf-set)
+    (if (null? (cdr leaf-set))
+        leaf-set
+        (successive-merge
+         (adjoin-set (make-code-tree (car leaf-set) (cadr leaf-set))
+                     (cddr leaf-set)))))
+#+end_src
+
+#+NAME: huff_all
+#+begin_src scheme :results replace
+  <<leaf>>
+  <<huff_tree>>
+  <<decode_huff_tree>>
+  <<leaf_set>>
+  <<huff_sample>>
+  <<encode>>
+  <<encode_symbol>>
+  <<gen_huff_tree>>
+  <<successive_merge>>
+#+end_src
+
+#+begin_src scheme :results replace
+  <<huff_all>>
+  (generate-huffman-tree '((A 4) (B 2) (C 1) (D 1)))
+#+end_src
+
+#+RESULTS:
+: (((leaf A 4) ((leaf B 2) ((leaf D 1) (leaf C 1) (D C) 2) (B D C) 4) (A B D C) 8))
+
+*Exercise 2.70*. The following eight-symbol alphabet with associated relative frequencies was designed to efficiently encode the lyrics of 1950s rock songs.  (Note that the "symbols" of an "alphabet" need not be individual letters.)
+
+          A     2 NA   16
+          BOOM  1 SHA  3
+          GET   2 YIP  9
+          JOB   2 WAH  1
+
+Use ~generate-huffman-tree~ (Exercise 2-69) to generate a corresponding Huffman tree, and use ~encode~ (Exercise 2-68) to encode the following message:
+
+          Get a job
+
+          Sha na na na na na na na na
+
+          Get a job
+
+          Sha na na na na na na na na
+
+          Wah yip yip yip yip yip yip yip yip yip
+
+          Sha boom
+
+How many bits are required for the encoding?  What is the smallest number of bits that would be needed to encode this song if we used a fixed-length code for the eight-symbol alphabet?
+
+#+begin_src scheme :results replace
+  <<huff_all>>
+  <<my_accumulate>>
+  (define rock-huff-tree
+    (generate-huffman-tree '((A 2) (BOOM 1) (GET 2) (JOB 2)
+                             (NA 16) (SHA 3) (YIP 9) (WAH 1))))
+  (define rock-message
+    '((GET A JOB)
+      (SHA NA NA NA NA NA NA NA NA)
+      (GET A JOB)
+      (SHA NA NA NA NA NA NA NA NA)
+      (WAH YIP YIP YIP YIP YIP YIP YIP YIP YIP)
+      (SHA BOOM)))
+
+  (define rock-encoded
+    (map (lambda (x) (encode x rock-huff-tree)) rock-message))
+
+  (list
+   ;; # encoded bits
+   (accumulate + 0 (map length rock-encoded))
+   ;; # fixed-length bits, assuming 3 bits each symbol
+   (* 3 (accumulate + 0 (map length rock-message))))
+#+end_src
+
+#+RESULTS:
+: (120 108)
+
+*Exercise 2.71*. Suppose we have a Huffman tree for an alphabet of n symbols, and that the relative frequencies of the symbols are 1, 2, 4, ..., 2^(n-1).  Sketch the tree for n=5; for n=10.  In such a tree (for general n) how may bits are required to encode the most frequent symbol?  the least frequent symbol?
+
+#+NAME: huff_exponential
+#+begin_src scheme
+  <<huff_all>>
+  <<enumerate_interval>>
+  (define (make-2**n-pair symbol n) (list symbol (expt 2 n)))
+  (define (gen-pairs symbols) (map make-2**n-pair symbols (enumerate-interval 1 (length symbols))))
+  (define (test-pairs symbols)
+    (let ((tree (generate-huffman-tree (gen-pairs symbols))))
+      (list (encode-symbol (car (reverse symbols)) tree)
+            (encode-symbol (car symbols) tree))))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<huff_exponential>>
+  (map test-pairs '((A B C D E) (A B C D E F G H I J)))
+#+end_src
+
+#+RESULTS:
+: (((0 1) (0 0 0 0 0)) ((0 1) (0 0 0 0 0 0 0 0 0 0)))
+
+2 bits for the most frequent, 10 for the least.
+
+*Exercise 2.72*. Consider the encoding procedure that you designed in *Note Exercise 2-68.  What is the order of growth in the number of steps needed to encode a symbol?  Be sure to include the number of steps needed to search the symbol list at each node encountered.  To answer this question in general is difficult. Consider the special case where the relative frequencies of the n symbols are as described in *Note Exercise 2-71, and give the order of growth (as a function of n) of the number of steps needed to encode the most frequent and least frequent symbols in the alphabet.
+
+At a given level \(l\) of the search tree need to do up to n/2^(l - 1) comparisons (for \(l = 1\) we might need to look through all of both left and right branch, so n, at the next level n/2, and so on).
+
+In the special case (Exercise 2-71), there might be n levels, in which case there will be on average \(n/2\) per level, so \(n^{2}/2\) comparisons for the least frequent symbol, and \(n + 1\) for the most frequent.
