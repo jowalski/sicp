@@ -4795,6 +4795,7 @@ To re-implement the rectangular method, we would define a package.
 
 #+NAME: rectangular_package
 #+begin_src scheme
+  <<square>>
   (define (install-rectangular-package)
     ;; internal procedures
     (define (real-part z) (car z))
@@ -4823,6 +4824,7 @@ To re-implement the rectangular method, we would define a package.
 
 #+NAME: polar_package
 #+begin_src scheme
+  <<square>>
   (define (install-polar-package)
     ;; internal procedures
     (define (magnitude z) (car z))
@@ -5165,3 +5167,1925 @@ Then, ~apply-generic~, which applies a generic operation, would be:
 
 *message-passing*:
   to add new types, for each procedure, add the appropriate primitive procedure. to add new procedure, just define a new procedure with the appropriate primitives contained in it.
+*** 2.5 Systems with Generic Operations
+Here we will use data-directed techniques to construct a package of arithmetic operations that incorporate various types of numbers and representations. The generic operations are ~add~, ~sub~, ~mul~ and ~div~
+**** 2.5.1 Generic Arithmetic Operations
+#+NAME: generic
+#+begin_src scheme
+  (define (attach-tag type-tag contents)
+    (cons type-tag contents))
+  (define (type-tag datum)
+    (if (pair? datum)
+        (car datum)
+        (error "Bad tagged datum -- TYPE-TAG" datum)))
+  (define (contents datum)
+    (if (pair? datum)
+        (cdr datum)
+        (error "Bad tagged datum -- CONTENTS")))
+  (define (apply-generic op . args)
+    (let ((type-tags (map type-tag args)))
+      (let ((proc (get op type-tags)))
+        (if proc
+            (apply proc (map contents args))
+            (error
+              "No method for these types -- APPLY-GENERIC"
+              (list op type-tags))))))
+#+end_src
+
+Generic arithmetic procedures:
+
+#+NAME: arithmetic
+#+begin_src scheme
+  (define (add x y) (apply-generic 'add x y))
+  (define (sub x y) (apply-generic 'sub x y))
+  (define (mul x y) (apply-generic 'mul x y))
+  (define (div x y) (apply-generic 'div x y))
+#+end_src
+
+First, we handle ordinary numbers and tag them "scheme-number".
+
+#+NAME: scheme_number
+#+begin_src scheme
+  (define (install-scheme-number-package)
+    (define (tag x)
+      (attach-tag 'scheme-number x))
+    (put 'add '(scheme-number scheme-number)
+         (lambda (x y) (tag (+ x y))))
+    (put 'sub '(scheme-number scheme-number)
+         (lambda (x y) (tag (- x y))))
+    (put 'mul '(scheme-number scheme-number)
+         (lambda (x y) (tag (* x y))))
+    (put 'div '(scheme-number scheme-number)
+         (lambda (x y) (tag (/ x y))))
+    (put 'equ? '(scheme-number scheme-number)
+         (lambda (x y) (tag (= x y))))
+    (put '=zero? '(scheme-number)
+         (lambda (x) (= 0 x)))
+    (put 'make 'scheme-number
+         (lambda (x) (tag x)))
+    (put 'raise '(scheme-number)
+         (lambda (x)
+           (let ((rat_val
+                  (rationalize (inexact->exact x) 1/1000)))
+             (make-rational (numerator rat_val)
+                            (denominator rat_val)))))
+    (put 'neg '(scheme-number)
+         (lambda (x) (tag (- x))))
+
+    (put 'make-1 'scheme-number drop)
+
+    (put 'project '(scheme-number) round)
+    (put-coercion 'scheme-number 'complex
+                  (lambda (n) (make-complex-from-real-imag (contents n) 0)))
+    (put-coercion 'scheme-number 'rational
+                  (get 'raise '(scheme-number)))
+    'done)
+  (define (make-scheme-number n)
+    ((get 'make 'scheme-number) n))
+#+end_src
+
+#+NAME: rational_number
+#+begin_src scheme
+  (define (install-rational-package)
+    ;; internal procedures
+    (define (numer x) (car x))
+    (define (denom x) (cdr x))
+    (define (make-rat n d)
+      (let ((g (gcd n d)))
+        (cons (/ n g) (/ d g))))
+    (define (add-rat x y)
+      (make-rat (+ (* (numer x) (denom y))
+                   (* (numer y) (denom x)))
+                (* (denom x) (denom y))))
+    (define (sub-rat x y)
+      (make-rat (- (* (numer x) (denom y))
+                   (* (numer y) (denom x)))
+                (* (denom x) (denom y))))
+    (define (mul-rat x y)
+      (make-rat (* (numer x) (numer y))
+                (* (denom x) (denom y))))
+    (define (div-rat x y)
+      (make-rat (* (numer x) (denom y))
+                (* (denom x) (numer y))))
+
+    ;; interface to rest of the system
+    (define (tag x) (attach-tag 'rational x))
+    (put 'add '(rational rational)
+         (lambda (x y) (tag (add-rat x y))))
+    (put 'sub '(rational rational)
+         (lambda (x y) (tag (sub-rat x y))))
+    (put 'mul '(rational rational)
+         (lambda (x y) (tag (mul-rat x y))))
+    (put 'div '(rational rational)
+         (lambda (x y) (tag (div-rat x y))))
+    (put 'equ? '(rational rational)
+         (lambda (x y) (and (= (numer x) (numer y))
+                            (= (denom x) (denom x)))))
+    (put '=zero? '(rational)
+         (lambda (x) (and (=zero? (numer x))
+                          (=zero? (denom x)))))
+
+    (put 'make 'rational
+         (lambda (n d) (tag (make-rat n d))))
+
+    (put 'make-1 'rational
+         (lambda (x) (let ((rat_val
+                            (rationalize (inexact->exact x) 1/1000000)))
+                       (make-rational (numerator rat_val)
+                                      (denominator rat_val)))))
+
+    (put 'raise '(rational)
+         (lambda (x) (make-complex-from-real-imag
+                      (/ (numer x)
+                         (denom x)) 0)))
+    (put 'project '(rational) (lambda (x) (make-scheme-number (/ (numer x) (denom x)))))
+
+    ;; (define (rational-number->complex n)
+    ;;    (make-complex-from-real-imag (/ (numer n) (denom n)) 0))
+    (put-coercion 'rational 'complex
+                  (lambda (n) (make-complex-from-real-imag
+                               (/ (numer (contents n))
+                                  (denom (contents n))) 0)))
+    'done)
+  (define (make-rational n d)
+    ((get 'make 'rational) n d))
+#+end_src
+
+Note: for the complex package, we rely on procedures from the rectangular and polar packages.
+
+#+NAME: make_complex
+#+begin_src scheme
+  (define (make-complex-from-real-imag x y)
+    ((get 'make-from-real-imag 'complex) x y))
+
+  (define (make-complex-from-mag-ang r a)
+    ((get 'make-from-mag-ang 'complex) r a))
+#+end_src
+
+#+NAME: complex_number
+#+begin_src scheme
+  <<rectangular_package>>
+  <<polar_package>>
+  (define (install-complex-package)
+    ;; imported procedures from rectangular and polar packages
+    (define (make-from-real-imag x y)
+      ((get 'make-from-real-imag 'rectangular) x y))
+    (define (make-from-mag-ang r a)
+      ((get 'make-from-mag-ang 'polar) r a))
+
+    ;; internal procedures
+    (define (add-complex z1 z2)
+      (make-from-real-imag (+ (real-part z1) (real-part z2))
+                           (+ (imag-part z1) (imag-part z2))))
+    (define (sub-complex z1 z2)
+      (make-from-real-imag (- (real-part z1) (real-part z2))
+                           (- (imag-part z1) (imag-part z2))))
+    (define (mul-complex z1 z2)
+      (make-from-mag-ang (* (magnitude z1) (magnitude z2))
+                         (+ (angle z1) (angle z2))))
+    (define (div-complex z1 z2)
+      (make-from-mag-ang (/ (magnitude z1) (magnitude z2))
+                         (- (angle z1) (angle z2))))
+
+    ;; interface to rest of the system
+    (define (tag z) (attach-tag 'complex z))
+    (put 'add '(complex complex)
+         (lambda (z1 z2) (tag (add-complex z1 z2))))
+    (put 'sub '(complex complex)
+         (lambda (z1 z2) (tag (sub-complex z1 z2))))
+    (put 'mul '(complex complex)
+         (lambda (z1 z2) (tag (mul-complex z1 z2))))
+    (put 'div '(complex complex)
+         (lambda (z1 z2) (tag (div-complex z1 z2))))
+    (put 'make-from-real-imag 'complex
+         (lambda (x y) (tag (make-from-real-imag x y))))
+    (put 'make-from-mag-ang 'complex
+         (lambda (r a) (tag (make-from-mag-ang r a))))
+    (put 'real-part '(complex)
+         (lambda (x) (real-part (contents x))))
+    (put 'imag-part '(complex)
+         (lambda (x) (imag-part (contents x))))
+    (put 'magnitude '(complex)
+         (lambda (x) (magnitude (contents x))))
+    (put 'angle '(complex)
+         (lambda (x) (angle (contents x))))
+    (put 'equ? '(complex complex)
+         (lambda (x y) (or (and (= (magnitude x) (magnitude y))
+                                (= (angle x) (angle y)))
+                           (and (= (real-part x) (real-part y))
+                                (= (imag-part x) (imag-part y))))))
+    (put 'project '(complex)
+         (lambda (x) ((get 'make-1 'rational) (real-part x))))
+    'done)
+
+  <<make_complex>>
+#+end_src
+
+*Exercise 2.77:* Louis Reasoner tries to evaluate the expression ~(magnitude z)~ where ~z~ is the object shown in *Note Figure 2-24::.  To his surprise, instead of the answer 5 he gets an error message from ~apply-generic~, saying there is no method for the operation ~magnitude~ on the types ~(complex)~.  He shows this interaction to Alyssa P. Hacker, who says "The problem is that the complex-number selectors were never defined for ~complex~ numbers, just for ~polar~ and ~rectangular~ numbers.  All you have to do to make this work is add the following to the ~complex~ package:"
+
+#+begin_src scheme
+  (put 'real-part '(complex) real-part)
+  (put 'imag-part '(complex) imag-part)
+  (put 'magnitude '(complex) magnitude)
+  (put 'angle '(complex) angle)
+#+end_src
+
+Describe in detail why this works.  As an example, trace through all the procedures called in evaluating the expression ~(magnitude z)~ where ~z~ is the object shown in *Note Figure 2-24.  In particular, how many times is ~apply-generic~ invoked?  What procedure is dispatched to in each case?
+
+Basically, first magnitude dispatches on the 'complex type to find the complex method, which is just the global "magnitude". In the meantime the data type has lost its 'complex tag, and we again call apply-generic on the new data object, which is the 'rectangular' type.
+
+So apply-generic is invoked twice, each time reducing the data object's types until we're left with the primitive magnitude procedure being called on the primitive data.
+
+(magnitude z) => (apply-generic 'magnitude z)
+              => (apply (get 'magnitude (map type-tag z)) (map contents z))
+              => (apply (get 'magnitude 'complex) ('rectangular ...))
+              => (apply (lambda (x) (apply-generic 'magnitude x)) ('rectangular ...))
+              => (apply (lambda (x) (apply (get 'magnitude (map type-tag x)) (map contents x))) ('rectangular ...))
+              => (apply (get 'magnitude (map type-tag ('rectangular ...))) (map contents ('rectangular ...)))
+              => (apply (get 'magnitude 'rectangular)  ...)
+              => ...
+
+Where "..." is in ~z = ('complex 'rectangular ...)~.
+
+#+NAME: complex_procs
+#+begin_src scheme
+  (define (magnitude c) (apply-generic 'magnitude c))
+  (define (real-part c) (apply-generic 'real-part c))
+  (define (imag-part c) (apply-generic 'imag-part c))
+  (define (angle c) (apply-generic 'angle c))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<generic>>
+  <<get_put>>
+  <<complex_number>>
+  <<complex_procs>>
+
+  (install-complex-package)
+  (install-rectangular-package)
+  (install-polar-package)
+
+  (define complex-value (make-complex-from-real-imag 1 2))
+  (magnitude complex-value)
+#+end_src
+
+#+RESULTS:
+: 2.23606797749979
+
+*Exercise 2.78*. The internal procedures in the ~scheme-number~ package are essentially nothing more than calls to the primitive procedures ~+~, ~-~, etc.  It was not possible to use the primitives of the language directly because our type-tag system requires that each data object have a type attached to it.  In fact, however, all Lisp implementations do have a type system, which they use internally.  Primitive predicates such as ~symbol?~ and ~number?~  determine whether data objects have particular types.  Modify the definitions of ~type-tag~, ~contents~, and ~attach-tag~ from section 2-4-2 so that our generic system takes advantage of Scheme's internal type system.  That is to say, the system should work as before except that ordinary numbers should be represented simply as Scheme numbers rather than as pairs whose ~car~ is the symbol ~scheme-number~.
+
+#+NAME: new_tag
+#+begin_src scheme
+  (define (attach-tag type-tag contents)
+    (if (eq? type-tag 'scheme-number)
+        contents
+        (cons type-tag contents)))
+  (define (type-tag datum)
+    (cond ((number? datum) 'scheme-number)
+          ((pair? datum) (car datum))
+          (else (error "Bad tagged datum -- TYPE-TAG" datum))))
+  (define (contents datum)
+    (cond ((number? datum) datum)
+          ((pair? datum) (cdr datum))
+          (else (error "Bad tagged datum -- CONTENTS"))))
+#+end_src
+
+#+NAME: new_generic
+#+begin_src scheme
+  <<new_tag>>
+  (define (apply-generic op . args)
+    (let ((type-tags (map type-tag args)))
+      (let ((proc (get op type-tags)))
+        (if proc
+            (apply proc (map contents args))
+            (error
+              "No method for these types -- APPLY-GENERIC"
+              (list op type-tags))))))
+#+end_src
+
+*Exercise 2.79*. Define a generic equality predicate ~equ?~ that tests the equality of two numbers, and install it in the generic arithmetic package.  This operation should work for ordinary numbers, rational numbers, and complex numbers.
+
+#+NAME: equ
+#+begin_src scheme
+  (define (equ? x y) (apply-generic 'equ? x y))
+#+end_src
+
+#+NAME: full_arith_package
+#+begin_src scheme :results replace
+  <<new_generic>>
+  <<get_put>>
+  <<scheme_number>>
+  <<complex_number>>
+  <<rational_number>>
+  <<arithmetic>>
+  <<equ>>
+  <<complex_procs>>
+#+end_src
+
+#+NAME: install_full_package
+#+begin_src scheme
+  (install-scheme-number-package)
+  (install-rectangular-package)
+  (install-polar-package)
+  (install-rational-package)
+  (install-complex-package)
+#+end_src
+
+#+begin_src scheme :results replace
+  <<full_arith_package>>
+  <<install_full_package>>
+  (list (equ? (make-complex-from-real-imag 3 4) (make-complex-from-real-imag 3 4))
+        (equ? (make-rational 8 3) (make-rational 8 3))
+        (equ? 7 7)
+        (equ? (make-complex-from-real-imag 3 4) (make-complex-from-real-imag 3 5))
+        (equ? (make-rational 8 3) (make-rational 4 3))
+        (equ? 9 10))
+#+end_src
+
+#+RESULTS:
+: (#t #t #t #f #f #f)
+
+*Exercise 2.80*. Define a generic predicate ~=zero?~ that tests if its argument is zero, and install it in the generic arithmetic package.  This operation should work for ordinary numbers, rational numbers, and complex numbers.
+
+#+NAME: eq_zero
+#+begin_src schemeks
+  (define (=zero? x) (apply-generic '=zero? x))
+#+end_src
+
+#+begin_src scheme
+
+#+end_src
+**** 2.5.2 Combining Data of Different Types
+If we need to perform an operation on two different types of data, we could do it in several ways. We could write procedures that take different types as arguments, but that would require writing them for each procedure and combination of types.
+***** Coercion
+Another option is coercing one type to another. ~apply-generic~, then, can check both for an already-existing procedure for the right types, or can try coercion on arguments until it finds the right type.
+
+#+NAME: coercion
+#+begin_src scheme
+  (define (put-coercion source-type target-type proc)
+    (put 'coercion (list source-type target-type) proc))
+
+  (define (get-coercion source-type target-type)
+    (get 'coercion (list source-type target-type)))
+#+end_src
+
+#+NAME: apply_generic_coercion
+#+begin_src scheme
+  <<coercion>>
+  (define (apply-generic op . args)
+    (let ((type-tags (map type-tag args)))
+      (let ((proc (get op type-tags)))
+        (if proc
+            (apply proc (map contents args))
+            (if (= (length args) 2)
+                (let ((type1 (car type-tags))
+                      (type2 (cadr type-tags))
+                      (a1 (car args))
+                      (a2 (cadr args)))
+                  (let ((t1->t2 (get-coercion type1 type2))
+                        (t2->t1 (get-coercion type2 type1)))
+                    (cond (t1->t2
+                           (apply-generic op (t1->t2 a1) a2))
+                          (t2->t1
+                           (apply-generic op a1 (t2->t1 a2)))
+                          (else
+                           (error "No method for these types"
+                                  (list op type-tags))))))
+                (error "No method for these types"
+                       (list op type-tags)))))))
+
+  (define (scheme-number->complex n)
+    (make-complex-from-real-imag (contents n) 0))
+  (put-coercion 'scheme-number 'complex scheme-number->complex)
+  ;; (define (rational-number->complex n)
+  ;;   (let ((rat_num n))
+  ;;        (make-complex-from-real-imag (/ (numer rat_num) (denom rat_num)) 0)))
+  ;; (put-coercion 'rational 'complex rational-number->complex)
+#+end_src
+
+This might not be general enough, as there may be a way of getting a result by converting both arguments to a third type.
+***** Hierarchies of types
+In some cases there may be a "global" structure in how types relate to each other, for instance, a hierarchy of types. That's what we have with our arithmetic, an integer of a type of rational is a type of real is a type of complex.
+
+We could redesign ~apply-generic~, to raise types within the hierarchy to the point where they are both the same.
+
+There are a few other advantages to this: types can "inherit" procedures from higher types, we can also "lower" data objects to their simplest representation (e.g. the complex 2 + 0i -> integer 2).
+***** Inadequacies of hierarchies
+However, not all types are so neatly arranged in a hierarchy, they may have more than one subtype, or more than one supertype. The multiple supertypes issue is thorny because there's no unique way to raise a type. Similarly for lowering objects.
+
+*Exercise 2.81*. Louis Reasoner has noticed that ~apply-generic~ may try to coerce the arguments to each other's type even if they already have the same type.  Therefore, he reasons, we need to put procedures in the coercion table to "coerce" arguments of each type to their own type.  For example, in addition to the ~scheme-number->complex~ coercion shown above, he would do:
+
+#+begin_src scheme
+  (define (scheme-number->scheme-number n) n)
+  (define (complex->complex z) z)
+  (put-coercion 'scheme-number 'scheme-number
+                scheme-number->scheme-number)
+  (put-coercion 'complex 'complex complex->complex)
+#+end_src
+
+a. With Louis's coercion procedures installed, what happens if ~apply-generic~ is called with two arguments of type ~scheme-number~ or two arguments of type ~complex~ for an operation that is not found in the table for those types? For example, assume that we've defined a generic exponentiation operation:
+
+#+begin_src scheme
+  (define (exp x y) (apply-generic 'exp x y))
+#+end_src
+
+and have put a procedure for exponentiation in the ~scheme-number~ package but not in any other package:
+
+#+begin_src scheme
+  ;; following added to Scheme-number package
+  (put 'exp '(scheme-number scheme-number)
+       (lambda (x y) (tag (expt x y)))) ; using primitive `expt'
+#+end_src
+
+What happens if we call ~exp~ with two complex numbers as arguments?
+
+It should cause an infinite loop (at least using the implementation from the "Coercion" section). We have:
+
+(apply-generic 'exp cx cy) => (apply-generic 'exp (complex->complex cx) cy)
+                           => (apply-generic 'exp cx cy)
+                           => ...
+
+b. Is Louis correct that something had to be done about coercion with arguments of the same type, or does ~apply-generic~ work correctly as is?
+
+Yes and no. The first part of ~apply-generic~ ~(get op type-tags)~ should return the right procedure, if it's defined for that type.
+
+c. Modify ~apply-generic~ so that it doesn't try coercion if the two arguments have the same type.
+
+#+NAME: apply_generic_coercion_fix
+#+begin_src scheme
+  (define (apply-generic op . args)
+    (let ((type-tags (map type-tag args)))
+      (let ((proc (get op type-tags)))
+        (if proc
+            (apply proc (map contents args))
+            (if (= (length args) 2)
+                (let ((type1 (car type-tags))
+                      (type2 (cadr type-tags))
+                      (a1 (car args))
+                      (a2 (cadr args)))
+                  (if (not (eq? type1 type2))
+                      (let ((t1->t2 (get-coercion type1 type2))
+                            (t2->t1 (get-coercion type2 type1)))
+                        (cond (t1->t2
+                               (apply-generic op (t1->t2 a1) a2))
+                              (t2->t1
+                               (apply-generic op a1 (t2->t1 a2)))
+                              (else
+                               (error "No method for these types"
+                                      (list op type-tags)))))
+                      (error "No method for these types"
+                                      (list op type-tags))))
+                (error "No method for these types"
+                       (list op type-tags)))))))
+#+end_src
+
+#+begin_src scheme :results replace
+<<full_arith_package>>
+<<apply_generic_coercion>>
+<<apply_generic_coercion_fix>>
+<<install_full_package>>
+(let ((rat_val (make-rational 3 5))
+      (complex_val (make-complex-from-real-imag 3 4)))
+  (list (add rat_val complex_val)
+        (add 3.5 complex_val)))
+#+end_src
+
+#+RESULTS:
+: ((complex rectangular 18/5 . 4) (complex rectangular 6.5 . 4))
+
+*Exercise 2.82*. Show how to generalize ~apply-generic~ to handle coercion in the general case of multiple arguments.  One strategy is to attempt to coerce all the arguments to the type of the first argument, then to the type of the second argument, and so on. Give an example of a situation where this strategy (and likewise the two-argument version given above) is not sufficiently general. (Hint: Consider the case where there are some suitable mixed-type operations present in the table that will not be tried.)
+
+
+#+NAME: any_all
+#+begin_src scheme
+  (define (same? l)
+    (if (null? (cdr l))
+        #t
+        (and (eq? (car l) (cadr l)) (same? (cdr l)))))
+
+  (define (all? l)
+    (if (null? l)
+        #t
+        (and (car l) (all? (cdr l)))))
+
+  (define (any? l)
+    (if (null? l)
+        #f
+        (or (car l) (any? (cdr l)))))
+#+end_src
+
+#+NAME: apply_generic_general
+#+begin_src scheme
+  <<any_all>>
+  (define (apply-generic op . args)
+    (define (try-coercions ttags1 ttags2)
+      (if (null? ttags2)
+          #f
+          (let ((coercion-funs
+                 (map (lambda (x)
+                        (if (eq? (car ttags2) x)
+                            identity
+                            (get-coercion x (car ttags2))))
+                      (append ttags1 ttags2))))
+            (or (and (not (any? (map not coercion-funs)))
+                     (apply apply-generic
+                            (cons op (map (lambda (f arg) (f arg))
+                                          coercion-funs args))))
+                (try-coercions (cons (car ttags2) ttags1)
+                               (cdr ttags2))))))
+    (let ((type-tags (map type-tag args)))
+      (let ((proc (get op type-tags)))
+        (if proc
+            (apply proc (map contents args))
+            (if (not (same? type-tags))
+                (try-coercions #nil type-tags)
+                (error "No method for these types"
+                       (list op type-tags)))))))
+#+end_src
+
+#+NAME: full_coercion_package
+#+begin_src scheme
+  <<full_arith_package>>
+  <<apply_generic_coercion>>
+  <<apply_generic_coercion_fix>>
+  <<install_full_package>>
+  <<apply_generic_general>>
+#+end_src
+
+#+begin_src scheme :results replace
+  <<full_coercion_package>>
+  (let ((rat_val (make-rational 3 5))
+        (complex_val (make-complex-from-real-imag 3 4)))
+    (list (add rat_val complex_val)
+          (add 3.5 complex_val)))
+#+end_src
+
+#+RESULTS:
+: ((complex rectangular 18/5 . 4) (complex rectangular 6.5 . 4))
+
+This won't work for the case where there is a suitable mixed-type operation, since we are only looking at coerced arguments all of the same type. Ideally you would look for all possible combinations of argument types.
+
+*Exercise 2.83*. Suppose you are designing a generic arithmetic system for dealing with the tower of types shown in *Note Figure 2-25 integer, rational, real, complex.  For each type (except complex), design a procedure that raises objects of that type one level in the tower.  Show how to install a generic ~raise~ operation that will work for each type (except complex).
+
+#+NAME: raise
+#+begin_src scheme
+  (define (raise x) (apply-generic 'raise x))
+#+end_src
+
+(see the scheme-number and rational packages for their raise methods)
+
+#+begin_src scheme :results replace
+  <<full_coercion_package>>
+  <<raise>>
+  (raise (raise 3.42))
+#+end_src
+
+#+RESULTS:
+: (complex rectangular 106/31 . 0)
+
+*Exercise 2.84*. Using the ~raise~ operation of Exercise 2-83, modify the ~apply-generic~ procedure so that it coerces its arguments to have the same type by the method of successive raising, as discussed in this section.  You will need to devise a way to test which of two types is higher in the tower.  Do this in a manner that is "compatible" with the rest of the system and will not lead to problems in adding new levels to the tower.
+
+#+NAME: raise_same
+#+begin_src scheme
+  (define tag-order '(scheme-number rational complex))
+  (define (tag-greater t1 t2 tag-order)
+    (let ((first (car tag-order)))
+      (cond ((eq? t1 first) #f)
+            ((eq? t2 first) #t)
+            ((null? tag-order) (error "Tags not found in tag-order"))
+            (else (tag-greater t1 t2 (cdr tag-order))))))
+
+  (define (tag-max ttags)
+    (if (null? (cdr ttags))
+        (car ttags)
+        (let ((max-tag (tag-max (cdr ttags))))
+          (if (tag-greater (car ttags) max-tag tag-order)
+              (car ttags)
+              max-tag))))
+
+  ;; (define (raise-to-level x tag)
+  ;;   (if (eq? (type-tag x) tag)
+  ;;       x
+  ;;       (raise-to-level (raise x) tag)))
+
+  (define (raise-to-level x tag)
+    (cond ((eq? (type-tag x) tag) x)
+          ((eq? tag 'dense) (make-dense-terms `((0 ,x))))
+          ;; ((eq? tag 'polynomial)
+          ;;  (if (eq? (type-tag (contents x)) 'polynomial)))
+          (else (raise-to-level (raise x) tag))))
+
+  (define (raise-all-to-same-level args)
+    (let ((max-tag (tag-max (map type-tag args))))
+      (map (lambda (x) (raise-to-level x max-tag)) args)))
+#+end_src
+
+#+NAME: apply_generic_raise
+#+begin_src scheme
+  <<raise_same>>
+  <<any_all>>
+  (define (apply-generic op . args)
+    ;; remove coercions part for this question
+    ;; (define (try-coercions ttags1 ttags2)
+    ;;   (if (null? ttags2)
+    ;;       #f
+    ;;       (let ((coercion-funs
+    ;;              (map (lambda (x)
+    ;;                     (if (eq? (car ttags2) x)
+    ;;                         identity
+    ;;                         (get-coercion x (car ttags2))))
+    ;;                   (append ttags1 ttags2))))
+    ;;         (or (and (not (any? (map not coercion-funs)))
+    ;;                  (apply apply-generic
+    ;;                         (cons op (map (lambda (f arg) (f arg))
+    ;;                                       coercion-funs args))))
+    ;;             (try-coercions (cons (car ttags2) ttags1)
+    ;;                            (cdr ttags2))))))
+    (let ((type-tags (map type-tag args)))
+      (let ((proc (get op type-tags)))
+        (if proc
+            (apply proc (map contents args))
+            (if (not (same? type-tags))
+                (let ((newargs (raise-all-to-same-level args)))
+                  ;; (or (apply apply-generic (cons op newargs))
+                  ;;     (try-coercions #nil type-tags))
+                  (apply apply-generic (cons op newargs)))
+                (error "No method for these types"
+                       (list op type-tags)))))))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<full_coercion_package>>
+  <<raise>>
+  <<apply_generic_raise>>
+  (list (add 3.2 (make-rational 8 7))
+        (mul (make-complex-from-real-imag 8 4) (make-rational 2 3)))
+#+end_src
+
+#+RESULTS:
+: ((rational 152 . 35) (complex polar 5.962847939999439 . 0.4636476090008061))
+
+*Exercise 2.85*. This section mentioned a method for "simplifying" a data object by lowering it in the tower of types as far as possible.  Design a procedure ~drop~ that accomplishes this for the tower described in *Note Exercise 2-83.  The key is to decide, in some general way, whether an object can be lowered.  For example, the complex number 1.5 + 0i can be lowered as far as ~real~, the complex number 1 + 0i can be lowered as far as ~integer~, and the complex number 2 + 3i cannot be lowered at all. Here is a plan for determining whether an object can be lowered: Begin by defining a generic operation ~project~ that "pushes" an object down in the tower.  For example, projecting a complex number would involve throwing away the imaginary part.  Then a number can be dropped if, when we ~project~ it and ~raise~ the result back to the type we started with, we end up with something equal to what we started with.  Show how to implement this idea in detail, by writing a ~drop~ procedure that drops an object as far as possible.  You will need to design the various projection operations(5) and install ~project~ as a generic operation in the system.  You will also need to make use of a generic equality predicate, such as described in *Note Exercise 2-79.  Finally, use ~drop~ to rewrite ~apply-generic~ from Exercise 2-84 so that it "simplifies" its answers.
+
+#+NAME: project
+#+begin_src scheme
+  (define (project x) (apply-generic 'project x))
+  (define (drop x)
+    (let ((projected-x (project x)))
+      (if (equ? x (raise projected-x))
+          (if (eq? (type-tag x) (type-tag projected-x))
+              projected-x
+              (drop projected-x))
+          x)))
+#+end_src
+
+#+NAME: project_all
+#+begin_src scheme
+  <<full_coercion_package>>
+  <<raise>>
+  <<apply_generic_raise>>
+  <<project>>
+#+end_src
+
+#+begin_src scheme :results replace
+  <<project_all>>
+  (list (project (make-complex-from-mag-ang 8 4))
+        (project (project (make-complex-from-mag-ang 8 4)))
+        (drop (make-complex-from-mag-ang 8 0))
+        (drop (make-complex-from-mag-ang 8.5 0)))
+#+end_src
+
+#+RESULTS:
+: ((rational -183 . 35) -183/35 8 17/2)
+
+#+NAME: apply_generic_drop
+#+begin_src scheme
+  <<any_all>>
+  ;; we should not call drop with these generic procedures
+  ;; since they would trigger an infinite loop
+  ;; all generics called in this function, or called in a function
+  ;; called by this function should go in this list
+  (define (apply-generic op . args)
+    (let ((type-tags (map type-tag args)))
+      (let ((proc (get op type-tags)))
+        (if proc
+            ((if (memq op '(raise project equ? =zero? div)) identity drop)
+             (apply proc (map contents args)))
+            (if (not (same? type-tags))
+                (let ((newargs (raise-all-to-same-level args)))
+                  (apply apply-generic (cons op newargs)))
+                (error "No method for these types"
+                       (list op type-tags)))))))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<project_all>>
+  <<apply_generic_drop>>
+  (add (make-rational 3 2) (make-complex-from-real-imag -2.5 0))
+#+end_src
+
+#+RESULTS:
+: -1
+
+*Exercise 2.86*. Suppose we want to handle complex numbers whose real parts, imaginary parts, magnitudes, and angles can be either ordinary numbers, rational numbers, or other numbers we might wish to add to the system.  Describe and implement the changes to the system needed to accommodate this.  You will have to define operations such as ~sine~ and ~cosine~ that are generic over ordinary numbers and rational numbers.
+
+- modify the mutators (~add~, ~mul~, ~sub~, ~div~), to handle taking the new inputs properly.
+- modify any other member procedures that are type-dependent (~equ?~, ~project~).
+- modify operations within ~rectangular~ and ~polar~ to handle taking the new inputs properly.
+
+#+NAME: complex_reqs
+#+begin_src scheme
+  <<get_put>>
+  <<new_tag>>
+  <<coercion>>
+  <<scheme_number>>
+  <<rational_number>>
+  <<raise>>
+  <<raise_same>>
+  <<arithmetic>>
+  <<equ>>
+  <<apply_generic_drop>>
+  <<project>>
+  <<make_complex>>
+  <<apply_complex>>
+#+end_src
+
+#+NAME: complex_all
+#+begin_src scheme
+  <<complex_reqs>>
+  (define (install-complex-package)
+    ;; imported procedures from rectangular and polar packages
+    (define (make-from-real-imag x y)
+      ((get 'make-from-real-imag 'rectangular) x y))
+    (define (make-from-mag-ang r a)
+      ((get 'make-from-mag-ang 'polar) r a))
+
+    ;; internal procedures
+    (define (add-complex z1 z2)
+      (make-from-real-imag (add (real-part z1) (real-part z2))
+                           (add (imag-part z1) (imag-part z2))))
+    (define (sub-complex z1 z2)
+      (make-from-real-imag (sub (real-part z1) (real-part z2))
+                           (sub (imag-part z1) (imag-part z2))))
+    (define (mul-complex z1 z2)
+      (make-from-mag-ang (mul (magnitude z1) (magnitude z2))
+                         (add (angle z1) (angle z2))))
+    (define (div-complex z1 z2)
+      (make-from-mag-ang (div (magnitude z1) (magnitude z2))
+                         (sub (angle z1) (angle z2))))
+
+    ;; interface to rest of the system
+    (define (tag z) (attach-tag 'complex z))
+    (put 'add '(complex complex)
+         (lambda (z1 z2) (tag (add-complex z1 z2))))
+    (put 'sub '(complex complex)
+         (lambda (z1 z2) (tag (sub-complex z1 z2))))
+    (put 'mul '(complex complex)
+         (lambda (z1 z2) (tag (mul-complex z1 z2))))
+    (put 'div '(complex complex)
+         (lambda (z1 z2) (tag (div-complex z1 z2))))
+    (put 'make-from-real-imag 'complex
+         (lambda (x y) (tag (make-from-real-imag x y))))
+    (put 'make-from-mag-ang 'complex
+         (lambda (r a) (tag (make-from-mag-ang r a))))
+    (put 'real-part '(complex) (lambda (x) (real-part x)))
+    (put 'imag-part '(complex) (lambda (x) (imag-part x)))
+    (put 'magnitude '(complex) (lambda (x) (magnitude x)))
+    (put 'angle '(complex) (lambda (x) (angle x)))
+    (put 'neg '(complex) (lambda (x) (neg x)))
+    (put 'equ? '(complex complex)
+         (lambda (x y) (or (and (equ? (magnitude x) (magnitude y))
+                                (equ? (angle x) (angle y)))
+                           (and (equ? (real-part x) (real-part y))
+                                (equ? (imag-part x) (imag-part y))))))
+    (put '=zero? '(complex)
+         (lambda (x) (and (=zero? (real-part x))
+                          (=zero? (imag-part x)))))
+    (put 'project '(complex)
+         (lambda (x) ((get 'make-1 'rational) (real-part x))))
+    ;; ???
+    (put 'raise '(complex) (lambda (x) (real-part x)))
+    'done)
+
+  (define (square x) (* x x))
+  (define (dropf f)
+    (lambda (. l)
+      (make-1 (apply f (map drop l))
+        (type-tag (car l)))))
+
+  (define (make-1 x type)
+    ((get 'make-1 type) x))
+
+  (define sine (dropf sin))
+  (define atang (dropf atan))
+  (define cosine (dropf cos))
+  (define squared (dropf square))
+  (define sqroot (dropf sqrt))
+
+  (define (install-rectangular-package)
+    ;; internal procedures
+    (define (real-part z) (car z))
+    (define (imag-part z) (cdr z))
+    (define (make-from-real-imag x y) (cons x y))
+    (define (magnitude z)
+      (sqroot (add (squared (real-part z))
+                 (squared (imag-part z)))))
+    (define (angle z)
+      (atang (imag-part z) (real-part z)))
+    (define (make-from-mag-ang r a)
+      (cons (mul r (cosine a)) (mul r (sine a))))
+
+    ;; interface to the rest of the system
+    (define (tag x) (attach-tag 'rectangular x))
+    (put 'real-part '(rectangular) real-part)
+    (put 'imag-part '(rectangular) imag-part)
+    (put 'magnitude '(rectangular) magnitude)
+    (put 'angle '(rectangular) angle)
+    (put 'make-from-real-imag 'rectangular
+         (lambda (x y) (tag (make-from-real-imag x y))))
+    (put 'make-from-mag-ang 'rectangular
+         (lambda (r a) (tag (make-from-mag-ang r a))))
+    (put 'neg '(rectangular)
+         (lambda (x) (make-from-real-imag (neg (real-part x))
+                                          (neg (imag-part x)))))
+    (put 'raise '(rectangular) identity)
+    'done)
+
+  (define (install-polar-package)
+    ;; internal procedures
+    (define (magnitude z) (car z))
+    (define (angle z) (cdr z))
+    (define (make-from-mag-ang r a) (cons r a))
+    (define (real-part z)
+      (mul (magnitude z) (cosine (angle z))))
+    (define (imag-part z)
+      (mul (magnitude z) (sine (angle z))))
+    (define (make-from-real-imag x y)
+      (cons (sqroot (add (squared x) (squared y)))
+            (atang y x)))
+
+    ;; interface to the rest of the system
+    (define (tag x) (attach-tag 'polar x))
+    (put 'real-part '(polar) real-part)
+    (put 'imag-part '(polar) imag-part)
+    (put 'magnitude '(polar) magnitude)
+    (put 'angle '(polar) angle)
+    (put 'neg '(polar)
+         (lambda (x) (make-from-mag-ang (magnitude x)
+                                        (add 3.14159268 (angle x)))))
+    (put 'make-from-real-imag 'polar
+         (lambda (x y) (tag (make-from-real-imag x y))))
+    (put 'make-from-mag-ang 'polar
+         (lambda (r a) (tag (make-from-mag-ang r a))))
+    (put 'raise '(polar) identity)
+    'done)
+#+end_src
+
+#+begin_src scheme :results replace
+  <<complex_all>>
+  <<install_full_package>>
+  (add (make-complex-from-real-imag (make-rational 2 5)
+                                    (make-rational 9 7))
+       3)
+#+end_src
+
+#+RESULTS:
+: (complex rectangular 17/5 . 9/7)
+**** 2.5.3 Example: Symbolic Algebra
+***** Arithmetic on polynomials
+We will create a system for manipulating (including adding and multiplying) polynomial expressions. We start again with data abstraction, and assume we have selectors ~variable~, ~term-list~ and ~make-poly~. Then we can define addition and multiplication.
+
+#+NAME: variable
+#+begin_src scheme
+  (define (variable? x) (symbol? x))
+
+  (define (same-variable? v1 v2)
+    (and (variable? v1) (variable? v2) (eq? v1 v2)))
+#+end_src
+
+#+NAME: polynomial
+#+begin_src scheme
+  <<get_put>>
+  <<new_tag>>
+  <<eq_zero>>
+
+  (define (install-polynomial-package)
+    ;; internal procedures
+    ;; representation of poly
+    (define (make-poly variable term-list)
+      (cons variable term-list))
+    (define (variable p) (car p))
+    (define (term-list p) (cdr p))
+
+    ;; representation of terms and term lists
+    (define (adjoin-term term term-list)
+      (if (=zero? (coeff term))
+          term-list
+          (cons term term-list)))
+
+    (define (the-empty-termlist) '())
+    (define (first-term term-list) (car term-list))
+    (define (rest-terms term-list) (cdr term-list))
+    (define (empty-termlist? term-list) (null? term-list))
+
+    (define (make-term order coeff) (list order coeff))
+    (define (order term) (car term))
+    (define (coeff term) (cadr term))
+
+    ;; continued on next page
+    (define (add-poly p1 p2)
+      (if (same-variable? (variable p1) (variable p2))
+          (make-poly (variable p1)
+                     (add-terms (term-list p1)
+                                (term-list p2)))
+          (error "Polys not in same var -- ADD-POLY"
+                 (list p1 p2))))
+
+    (define (mul-poly p1 p2)
+      (if (same-variable? (variable p1) (variable p2))
+          (make-poly (variable p1)
+                     (mul-terms (term-list p1)
+                                (term-list p2)))
+          (error "Polys not in same var -- MUL-POLY"
+                 (list p1 p2))))
+
+  (define (equ-terms? t1 t2)
+    (cond ((and (null? t1) (null? t2)) #t)
+          ((or (null? t1) (null? t2)) #f)
+          (else (let ((ft1 (first-term t1))
+                      (ft2 (first-term t2)))
+                  (and (equ? (order ft1) (order ft2))
+                       (equ? (coeff ft1) (coeff ft2))
+                       (equ-terms? (rest-terms t1) (rest-terms t2)))))))
+
+    (define (add-terms t1 t2)
+      (cond ((empty-termlist? t1) t2)
+            ((empty-termlist? t2) t1)
+            (else
+             (let ((f1 (first-term t1))
+                   (f2 (first-term t2)))
+               (cond ((> (order f1) (order f2))
+                      (adjoin-term f1
+                                   (add-terms (rest-terms t1) t2)))
+                     ((< (order f1) (order f2))
+                      (adjoin-term f2
+                                   (add-terms t1 (rest-terms t2))))
+                     (else
+                      (adjoin-term
+                       (make-term (order f1)
+                                  (add (coeff f1) (coeff f2)))
+                       (add-terms (rest-terms t1) (rest-terms t2)))))))))
+
+    (define (mul-terms L1 L2)
+      (if (empty-termlist? L1)
+          (the-empty-termlist)
+          (add-terms (mul-term-by-all-terms (first-term L1) L2)
+                     (mul-terms (rest-terms L1) L2))))
+
+    (define (mul-term-by-all-terms t1 L)
+      (if (empty-termlist? L)
+          (the-empty-termlist)
+          (let ((t2 (first-term L)))
+            (adjoin-term
+             (make-term (+ (order t1) (order t2))
+                        (mul (coeff t1) (coeff t2)))
+             (mul-term-by-all-terms t1 (rest-terms L))))))
+
+    (define (neg-poly p)
+      (make-poly
+       (variable p)
+       (map (lambda (x) (make-term (order x)
+                                   (neg (coeff x))))
+            (term-list p))))
+
+    (define (sub-poly p1 p2) (add-poly p1 (neg-poly p2)))
+
+
+    ;; interface to rest of the system
+    (define (tag p) (attach-tag 'polynomial p))
+    (put 'add '(polynomial polynomial)
+         (lambda (p1 p2) (tag (add-poly p1 p2))))
+    (put 'mul '(polynomial polynomial)
+         (lambda (p1 p2) (tag (mul-poly p1 p2))))
+    (put 'make 'polynomial
+         (lambda (var terms) (tag (make-poly var terms))))
+    (put 'neg '(polynomial) (lambda (p) (tag (neg-poly p))))
+    (put '=zero '(polynomial) empty-termlist?)
+    (put 'project '(polynomial) (lambda (x) (tag x)))
+    (put 'raise '(polynomial) (lambda (x) (tag x)))
+    (put 'equ? '(polynomial polynomial)
+         (lambda (p1 p2) (and (eq? (variable p1) (variable p2))
+                              (equ-terms? (term-list p1) (term-list p2)))))
+    (put 'sub '(polynomial polynomial)
+         (lambda (p1 p2) (tag (sub-poly p1 p2))))
+    'done)
+
+  (define (make-polynomial var terms)
+    ((get 'make 'polynomial) var terms))
+#+end_src
+
+To manipulate term lists, we assume we have constructors ~the-empty-termlist~ and ~adjoin-term~, that adjoins a new term to the list. Also, we have ~empty-termlist?~, ~first-term~, and ~rest-terms~. And selectors ~order~ and ~coeff~ for an individual term.
+
+Since we've used the generic ~add~ and ~mul~, and defined a type ~polynomial~, we can add and multiply different polynomials, through the principal of "data-directed recursion".
+***** Representing term lists
+A factor in representing terms is the "density" of polynomials, i.e. the fraction of orders it has nonzero coefficients for. A good dense representation would be an ordered list, of single values, since it would mostly have nonzero values in it and would be a good use of space. But for sparse polynomials, such as will be more likely in our case, it might be better to only represent nonzero terms. So an ordered list of two-element lists (consisting of order and coefficient)would be reasonable.
+
+#+begin_src scheme
+  <<eq_zero>>
+  (define (adjoin-term term term-list)
+    (if (=zero? (coeff term))
+        term-list
+        (cons term term-list)))
+
+  (define (the-empty-termlist) '())
+  (define (first-term term-list) (car term-list))
+  (define (rest-terms term-list) (cdr term-list))
+  (define (empty-termlist? term-list) (null? term-list))
+
+  (define (make-term order coeff) (list order coeff))
+  (define (order term) (car term))
+  (define (coeff term) (cadr term))
+#+end_src
+
+
+*Exercise 2.87*. Install ~=zero?~ for polynomials in the generic arithmetic package.  This will allow ~adjoin-term~ to work for polynomials with coefficients that are themselves polynomials.
+
+(it calls ~empty-termlist?~)
+
+*Exercise 2.88*. Extend the polynomial system to include subtraction of polynomials.  (Hint: You may find it helpful to define a generic negation operation.)
+
+#+NAME: negative
+#+begin_src scheme
+  (define (neg x) (apply-generic 'neg x))
+#+end_src
+
+#+NAME: poly_all
+#+begin_src scheme
+  <<negative>>
+  <<variable>>
+  <<complex_all>>
+  <<polynomial>>
+  <<install_full_package>>
+  (install-polynomial-package)
+#+end_src
+
+#+begin_src scheme :results replace
+  <<poly_all>>
+  (sub (make-polynomial 'x '((2 3) (0 1)))
+       (make-polynomial 'x '((3 2) (2 5) (1 2))))
+#+end_src
+
+#+RESULTS:
+: (polynomial x (3 -2) (2 -2) (1 -2) (0 1))
+
+*Exercise 2.89:* Define procedures that implement the term-list representation described above as appropriate for dense polynomials.
+
+#+NAME: poly_dense
+#+begin_src scheme
+  (define (install-polynomial-package)
+    (define (make-poly variable term-list)
+      (list variable term-list))
+    (define (variable p) (car p))
+    (define (term-list p) (cadr p))
+
+    ;; continued on next page
+    (define (add-poly p1 p2)
+      (if (same-variable? (variable p1) (variable p2))
+          (make-poly (variable p1)
+                     (add-terms (term-list p1)
+                                (term-list p2)))
+          (error "Polys not in same var -- ADD-POLY"
+                 (list p1 p2))))
+
+    (define (mul-poly p1 p2)
+      (if (same-variable? (variable p1) (variable p2))
+          (make-poly (variable p1)
+                     (mul-terms (term-list p1)
+                                (term-list p2)))
+          (error "Polys not in same var -- MUL-POLY"
+                 (list p1 p2))))
+
+    (define (the-empty-termlist) '(0 ()))
+    (define (first-term term-list)
+      (list (highest-order term-list)
+            (car (dense-list term-list))))
+    (define (rest-terms term-list)
+      (list (- (highest-order term-list) 1)
+            (cdr (dense-list term-list))))
+    (define (empty-termlist? term-list)
+      (and (null? (dense-list term-list))
+           (<= (highest-order term-list) 0)))
+
+    (define (highest-order term-list)
+      (car term-list))
+    (define (dense-list term-list)
+      (cadr term-list))
+
+    ;; (define (make-term order coeff) (list order coeff))
+    (define (order term) (car term))
+    (define (coeff term) (cadr term))
+
+    (define (equ-terms? t1 t2)
+      (or (and (empty-termlist? t1) (empty-termlist? t2))
+          (and (eq? (highest-order t1) (highest-order t2))
+               (equ-list? (dense-list t1) (dense-list t2)))))
+
+    (define (equ-list? l1 l2)
+      (or (and (null? l1) (null? l2))
+          (and (equ? (car l1) (car l2))
+               (equ-list? (cdr l1) (cdr l2)))))
+
+    ;; for two lists x, y where (length x) >= (length y),
+    ;; append the the first ((length x) - (length y)) elements to the list,
+    ;; followed by the sum of each subsequent element in the list
+    (define (append-add x n y)
+      (cond ((and (null? x) (null? y)) #nil)
+            ((= n 0) (cons (add (car x) (car y)) (append-add (cdr x) 0 (cdr y))))
+            ((> n 0) (cons (car x) (append-add (cdr x) (- n 1) y)))
+            (else (error "problem with APPEND-ADD"))))
+
+    ;; return the list of the element x added to the element at the nth position of l
+    (define (add-x-to-nth l x n)
+      (cond ((= n 0) (cons (add (car l) x) (cdr l)))
+            (else (cons (car l) (add-x-to-nth (cdr l) x (- n 1))))))
+
+    (define (sep-and-mul-every-n l x n)
+      (if (null? l)
+          #nil
+          (cons (mul (car l) x)
+                (append (make-list n 0)
+                        (sep-and-mul-every-n (cdr l) x n)))))
+
+    (define (shift-n-and-mul l n x)
+      (append (map (lambda (y) (mul x y)) l) (make-list n 0)))
+
+    (define (add-terms t1 t2)
+      (cond ((empty-termlist? t1) t2)
+            ((empty-termlist? t2) t1)
+            (else
+             (let ((o1 (highest-order t1))
+                   (o2 (highest-order t2))
+                   (dl1 (dense-list t1))
+                   (dl2 (dense-list t2)))
+               (cond ((>= o1 o2)
+                      (make-terms o1 (append-add dl1 (- o1 o2) dl2)))
+                     ((< o1 o2)
+                      (make-terms o2 (append-add dl2 (- o2 o1) dl1))))))))
+
+    (define (mul-terms L1 L2)
+      (if (empty-termlist? L1)
+          (the-empty-termlist)
+          (add-terms (mul-term-by-all-terms (first-term L1) L2)
+                     (mul-terms (rest-terms L1) L2))))
+
+    (define (mul-term-by-all-terms t1 L)
+      (if (empty-termlist? L)
+          (the-empty-termlist)
+          (make-terms (+ (order t1) (highest-order L))
+                      (shift-n-and-mul (dense-list L) (order t1) (coeff t1)))))
+
+    (define (make-terms h-order coeffs)
+      (cond ((null? coeffs) (list 0 '()))
+            ((=zero? (car coeffs)) (make-terms (- h-order 1) (cdr coeffs)))
+            (else (list h-order coeffs))))
+
+    (define (neg-poly p)
+      (make-poly
+       (variable p)
+       (make-terms (highest-order (term-list p))
+                   (map neg (dense-list (term-list p))))))
+
+    (define (sub-poly p1 p2) (add-poly p1 (neg-poly p2)))
+
+    ;; interface to rest of the system
+    (define (tag p) (attach-tag 'polynomial p))
+    (put 'add '(polynomial polynomial)
+         (lambda (p1 p2) (tag (add-poly p1 p2))))
+    (put 'mul '(polynomial polynomial)
+         (lambda (p1 p2) (tag (mul-poly p1 p2))))
+    (put 'make 'polynomial
+         (lambda (var terms) (tag (make-poly var terms))))
+    (put 'neg '(polynomial) (lambda (p) (tag (neg-poly p))))
+    (put '=zero '(polynomial) empty-termlist?)
+    (put 'project '(polynomial) (lambda (x) (tag x)))
+    (put 'raise '(polynomial) (lambda (x) (tag x)))
+    (put 'equ? '(polynomial polynomial)
+         (lambda (p1 p2) (and (eq? (variable p1) (variable p2))
+                              (equ-terms? (term-list p1) (term-list p2)))))
+    (put 'sub '(polynomial polynomial)
+         (lambda (p1 p2) (tag (sub-poly p1 p2))))
+    'done)
+
+  (define (make-polynomial var terms)
+    ((get 'make 'polynomial) var terms))
+#+end_src
+
+#+NAME: dense_all
+#+begin_src scheme
+  <<eq_zero>>
+  <<negative>>
+  <<variable>>
+  <<complex_all>>
+  <<poly_dense>>
+  <<install_full_package>>
+  (install-polynomial-package)
+#+end_src
+
+#+begin_src scheme :results replace
+  <<dense_all>>
+  (list (sub (make-polynomial 'x '(3 (3 2 1 0)))
+             (make-polynomial 'x '(3 (3 2 0 0))))
+        (neg (mul (make-polynomial 'x '(4 (3 2 1 0 2)))
+                  (make-polynomial 'x '(5 (3 0 7 1 13 8))))))
+#+end_src
+
+#+RESULTS:
+: ((polynomial x (1 (1 0))) (polynomial x (9 (-9 -6 -24 -17 -54 -51 -43 -10 -26 -16))))
+
+*Exercise 2.90:* Suppose we want to have a polynomial system that is efficient for both sparse and dense polynomials.  One way to do this is to allow both kinds of term-list representations in our system.  The situation is analogous to the complex-number example of section *Note 2-4::, where we allowed both rectangular and polar representations.  To do this we must distinguish different types of term lists and make the operations on term lists generic. Redesign the polynomial system to implement this generalization. This is a major effort, not a local change.
+
+#+NAME: put_list
+#+begin_src scheme
+  (define (ftag tg) (lambda (f)
+                      (lambda (. l)
+                        (attach-tag tg (apply f l)))))
+
+  (define (put-list type tagfun l)
+    (for-each (lambda (x) (put (car x) type (tagfun (cadr x)))) l))
+#+end_src
+
+#+NAME: poly_both
+#+begin_src scheme
+  <<put_list>>
+  (define (install-polynomial-package)
+    (define (make-poly variable term-list)
+      (list variable term-list))
+    ;; (define (make-sparse var term-list)
+    ;;   ((get 'make 'sparse) var term-list))
+    ;; (define (make-dense var term-list)
+    ;;   ((get 'make 'dense) var term-list))
+
+    (define (variable p) (car p))
+    (define (term-list p) (cadr p))
+
+    ;; continued on next page
+    (define (add-poly p1 p2)
+      (if (same-variable? (variable p1) (variable p2))
+          (make-poly (variable p1)
+                     (add (term-list p1)
+                          (term-list p2)))
+          (error "Polys not in same var -- ADD-POLY"
+                 (list p1 p2))))
+
+    (define (mul-poly p1 p2)
+      (if (same-variable? (variable p1) (variable p2))
+          (make-poly (variable p1)
+                     (mul (term-list p1)
+                          (term-list p2)))
+          (error "Polys not in same var -- MUL-POLY"
+                 (list p1 p2))))
+
+    (define (sub-poly p1 p2) (add-poly p1 (neg-poly p2)))
+    (define (neg-poly p)
+      (make-poly (variable p) (neg (term-list p))))
+
+    (define (equ-poly? p1 p2)
+      (and (eq? (variable p1) (variable p2))
+           (equ? (term-list p1) (term-list p2))))
+
+    <<div_poly>>
+
+    ;; interface to rest of the system
+    (define ftag-poly (ftag 'polynomial))
+
+    (put-list '(polynomial) ftag-poly
+              `((project ,project)
+                (raise ,identity)
+                (neg ,neg-terms)))
+    (put-list '(polynomial polynomial) ftag-poly
+              `((add ,add-poly)
+                (mul ,mul-poly)
+                (div ,div-poly)
+                (sub ,sub-poly)))
+    (put-list '(polynomial) identity
+              `((=zero empty-termlist?)))
+    (put-list '(polynomial polynomial) identity
+              `((equ? ,equ-poly?)))
+    (put-list 'polynomial ftag-poly
+              `((make ,make-poly)))
+    'done)
+
+  ;; the term-list format is list of (<order> <coeff>) pairs
+  ;; ((3 2) (2 3) (0 1))
+  (define (install-dense-package)
+    ;; internal procedures
+    ;; representation of terms and term lists
+    (define (make-terms term-list)
+      (list term-list '()))
+
+    (define (terms l) (car l))
+    (define (remainder l) (cadr l))
+
+
+    (define (adjoin-term term term-list)
+      (if (=zero? (coeff term))
+          term-list
+          (cons term term-list)))
+
+    (define (the-empty-termlist) '())
+    (define (first-term term-list) (car term-list))
+    (define (rest-terms term-list) (cdr term-list))
+    (define (empty-termlist? term-list) (null? term-list))
+
+    (define (make-term order coeff) (list order coeff))
+    (define (order term) (car term))
+    (define (coeff term) (cadr term))
+
+    (define ftag-dense (ftag 'dense))
+
+    (define (equ-terms-inner? t1 t2)
+      (cond ((and (null? t1) (null? t2)) #t)
+            ((or (null? t1) (null? t2)) #f)
+            (else (let ((ft1 (first-term t1))
+                        (ft2 (first-term t2)))
+                    (and (eq? (order ft1) (order ft2))
+                         (equ? (coeff ft1) (coeff ft2))
+                         (equ-terms-inner? (rest-terms t1) (rest-terms t2)))))))
+
+    (define (equ-terms? L1 L2)
+      (let ((t1 (terms L1))
+            (t2 (terms L2)))
+        (equ-terms-inner? t1 t2)))
+
+    (define (add-terms-inner t1 t2)
+      (cond ((empty-termlist? t1) t2)
+              ((empty-termlist? t2) t1)
+              (else
+               (let ((f1 (first-term t1))
+                     (f2 (first-term t2)))
+                 (cond ((> (order f1) (order f2))
+                        (adjoin-term f1
+                                     (add-terms-inner (rest-terms t1) t2)))
+                       ((< (order f1) (order f2))
+                        (adjoin-term f2
+                                     (add-terms-inner t1 (rest-terms t2))))
+                       (else
+                        (adjoin-term
+                         (make-term (order f1)
+                                    (add (coeff f1) (coeff f2)))
+                         (add-terms-inner (rest-terms t1) (rest-terms t2)))))))))
+
+    (define (add-terms L1 L2)
+      (let ((t1 (terms L1))
+            (t2 (terms L2)))
+        (make-terms (add-terms-inner t1 t2))))
+
+    ;; (use-modules ((srfi srfi-1)))
+    ;; add/multiply two polynomials
+    (define (add-poly-f addfun tagfun)
+      (define (rfun t v)
+        (cond ((null? t) (list (make-term 0 (tagfun v))))
+              ((zero? (order (first-term t)))
+               (list (make-term 0 (tagfun (addfun v (coeff (first-term t)))))))
+              (else (cons (first-term t)
+                          (rfun (cdr t) v)))))
+      rfun)
+
+    (define add-poly-val (add-poly-f add identity))
+    (define add-poly-poly-term (add-poly-f add-poly-val (ftag-dense identity)))
+
+    (define (mul-poly-f f)
+      (lambda (t v)
+        (map (lambda (term) (make-term (order term) (f v (coeff term)))) t)))
+
+    (define mul-poly-val (mul-poly-f mul))
+    (define mul-poly-poly-term (mul-poly-f (ftag-dense mul-poly-val)))
+
+    (define (mul-terms-inner t1 t2)
+      (if (empty-termlist? t1)
+            (the-empty-termlist)
+            (add-terms-inner (mul-term-by-all-terms (first-term t1) t2)
+                             (mul-terms-inner (rest-terms t1) t2))))
+
+    (define (mul-terms L1 L2)
+      (let ((t1 (terms L1))
+            (t2 (terms L2)))
+        (make-terms (mul-terms-inner t1 t2))))
+
+    <<div_terms>>
+
+    (define (mul-term-by-all-terms t1 L)
+      (if (empty-termlist? L)
+          (the-empty-termlist)
+          (let ((t2 (first-term L)))
+            (adjoin-term
+             (make-term (+ (order t1) (order t2))
+                        (mul (coeff t1) (coeff t2)))
+             (mul-term-by-all-terms t1 (rest-terms L))))))
+
+    (define (neg-terms-inner ts)
+      (map (lambda (x) (make-term (order x)
+                                  (neg (coeff x))))
+                       ts))
+
+    (define (neg-terms L)
+      (make-terms (neg-terms-inner (terms L))))
+
+    (put-list '(dense) ftag-dense
+              `((project ,identity)
+                (raise ,identity)
+                (neg ,neg-terms)))
+    (put-list '(dense dense) ftag-dense
+              `((add ,add-terms)
+                (add-poly-poly ,add-poly-poly-term)
+                (mul ,mul-terms)
+                (div ,div-terms)
+                (mul-poly-poly ,mul-poly-poly-term)))
+    (put-list '(dense) identity
+              `((=zero empty-termlist?)))
+    (put-list '(dense dense) identity
+              `((equ? ,equ-terms?)))
+    (put-list 'dense ftag-dense
+              `((make-terms ,make-terms)))
+    'done)
+
+  (define (install-sparse-package)
+
+    (define (the-empty-termlist) '(0 ()))
+    (define (first-term term-list)
+      (list (highest-order term-list)
+            (car (sparse-list term-list))))
+    (define (rest-terms term-list)
+      (list (- (highest-order term-list) 1)
+            (cdr (sparse-list term-list))))
+    (define (empty-termlist? term-list)
+      (and (null? (sparse-list term-list))
+           (<= (highest-order term-list) 0)))
+
+    (define (highest-order term-list)
+      (car term-list))
+    (define (sparse-list term-list)
+      (cadr term-list))
+
+    (define (order term) (car term))
+    (define (coeff term) (cadr term))
+
+    (define (equ-terms? t1 t2)
+      (or (and (empty-termlist? t1) (empty-termlist? t2))
+          (and (eq? (highest-order t1) (highest-order t2))
+               (equ-list? (sparse-list t1) (sparse-list t2)))))
+
+    (define (equ-list? l1 l2)
+      (or (and (null? l1) (null? l2))
+          (and (equ? (car l1) (car l2))
+               (equ-list? (cdr l1) (cdr l2)))))
+
+    ;; for two lists x, y where (length x) >= (length y),
+    ;; append the the first ((length x) - (length y)) elements to the list,
+    ;; followed by the sum of each subsequent element in the list
+    (define (append-add x n y)
+      (cond ((and (null? x) (null? y)) #nil)
+            ((= n 0) (cons (add (car x) (car y)) (append-add (cdr x) 0 (cdr y))))
+            ((> n 0) (cons (car x) (append-add (cdr x) (- n 1) y)))
+            (else (error "problem with APPEND-ADD"))))
+
+    ;; return the list of the element x added to the element at the nth position of l
+    (define (add-x-to-nth l x n)
+      (cond ((= n 0) (cons (add (car l) x) (cdr l)))
+            (else (cons (car l) (add-x-to-nth (cdr l) x (- n 1))))))
+
+    (define (sep-and-mul-every-n l x n)
+      (if (null? l)
+          #nil
+          (cons (mul (car l) x)
+                (append (make-list n 0)
+                        (sep-and-mul-every-n (cdr l) x n)))))
+
+    (define (shift-n-and-mul l n x)
+      (append (map (lambda (y) (mul x y)) l) (make-list n 0)))
+
+    (define (add-terms t1 t2)
+      (cond ((empty-termlist? t1) t2)
+            ((empty-termlist? t2) t1)
+            (else
+             (let ((o1 (highest-order t1))
+                   (o2 (highest-order t2))
+                   (dl1 (sparse-list t1))
+                   (dl2 (sparse-list t2)))
+               (cond ((>= o1 o2)
+                      (make-terms o1 (append-add dl1 (- o1 o2) dl2)))
+                     ((< o1 o2)
+                      (make-terms o2 (append-add dl2 (- o2 o1) dl1))))))))
+
+    ;; (define (add-poly-poly t1 t2)
+    ;;   (if ()))
+
+    (define (mul-terms L1 L2)
+      (if (empty-termlist? L1)
+          (the-empty-termlist)
+          (add-terms (mul-term-by-all-terms (first-term L1) L2)
+                     (mul-terms (rest-terms L1) L2))))
+
+    (define (mul-term-by-all-terms t1 L)
+      (if (empty-termlist? L)
+          (the-empty-termlist)
+          (make-terms (+ (order t1) (highest-order L))
+                      (shift-n-and-mul (sparse-list L) (order t1) (coeff t1)))))
+
+    (define (make-terms h-order coeffs)
+      (cond ((null? coeffs) (list 0 '()))
+            ((=zero? (car coeffs)) (make-terms (- h-order 1) (cdr coeffs)))
+            (else (list h-order coeffs))))
+
+    (define (neg-terms term-list)
+      (make-terms (highest-order term-list)
+                  (map neg (sparse-list term-list))))
+
+    (define ftag-sparse (ftag 'sparse))
+
+    (put-list '(sparse) ftag-sparse
+              `((project ,identity)
+                (raise ,identity)
+                (neg ,neg-terms)))
+    (put-list '(sparse sparse) ftag-sparse
+              `((add ,add-terms)
+                ;; (add-poly ,add-poly-poly)
+                (mul ,mul-terms)
+                ;; (div ,div-terms)
+                ;; (mul-poly, mul-poly-poly)
+                ))
+    (put-list '(sparse) identity
+              `((=zero empty-termlist?)))
+    (put-list '(sparse sparse) identity
+              `((equ? ,equ-terms?)))
+    (put-list 'sparse ftag-sparse
+              `((make-terms ,make-terms)))
+    'done)
+
+  (define (make-sparse-terms terms)
+    ((get 'make-terms 'sparse) terms))
+
+  (define (make-poly var terms)
+    ((get 'make 'polynomial) var terms))
+
+  (define (make-dense-terms terms)
+    ((get 'make-terms 'dense) terms))
+
+  ;; (define (equ-terms? t1 t2)
+  ;;   (apply-generic 'equ-terms? t1 t2))
+
+  (define (neg-terms t1 t2)
+    (apply-generic 'neg-terms t1 t2))
+
+  (define (div p1 p2)
+    (apply-generic 'div p1 p2))
+#+end_src
+
+#+NAME: poly_both_all
+#+begin_src scheme
+  <<eq_zero>>
+  <<negative>>
+  <<variable>>
+  <<complex_all>>
+  <<install_full_package>>
+  <<poly_both>>
+  (install-polynomial-package)
+  (install-dense-package)
+  (install-sparse-package)
+#+end_src
+
+#+begin_src scheme :results replace
+  <<poly_both_all>>
+  (define (mpd terms)
+    (make-poly 'x (make-dense-terms terms)))
+  (define (mps terms)
+    (make-poly 'x (make-sparse-terms terms)))
+
+  (let ((d1 (mpd '((3 8) (1 3) (0 9))))
+        (d2 (mpd '((5 6) (3 1) (1 6))))
+        (s1 (mps '(3 5 2 0 3 5)))
+        (s2 (mps '(2 0 4 9))))
+        (list (mul d1 d2)
+              (mul s1 s2)
+              (neg d2)
+              (neg s2)
+              (equ? d1 d1)
+              (equ? d1 d2)
+              (equ? s1 s1)
+              (equ? s1 s2)))
+
+#+end_src
+
+#+RESULTS:
+: ((polynomial x (dense (8 48) (6 26) (5 54) (4 51) (3 9) (2 18) (1 54))) (polynomial x (sparse 10 (6 10 16 47 59 28 12 47 45 0))) (polynomial x (dense (5 -6) (3 -1) (1 -6))) (polynomial x (sparse 4 (-2 0 -4 -9))) #t #f #t #f)
+
+*Exercise 2.91:* A univariate polynomial can be divided by another one to produce a polynomial quotient and a polynomial remainder. For example,
+
+\[
+\frac{x^{5}-1}{x^{2}-1} = x^{3} + x, remainder(x-1)
+\]
+
+Division can be performed via long division.  That is, divide the highest-order term of the dividend by the highest-order term of the divisor.  The result is the first term of the quotient.  Next, multiply the result by the divisor, subtract that from the dividend, and produce the rest of the answer by recursively dividing the difference by the divisor.  Stop when the order of the divisor exceeds the order of the dividend and declare the dividend to be the remainder.  Also, if the dividend ever becomes zero, return zero as both quotient and remainder.
+
+We can design a ~div-poly~ procedure on the model of ~add-poly~ and ~mul-poly~. The procedure checks to see if the two polys have the same variable.  If so, ~div-poly~ strips off the variable and passes the problem to ~div-terms~, which performs the division operation on term lists. ~Div-poly~ finally reattaches the variable to the result supplied by ~div-terms~.  It is convenient to design ~div-terms~ to compute both the quotient and the remainder of a division.  ~Div-terms~ can take two term lists as arguments and return a list of the quotient term list and the remainder term list.
+
+Complete the following definition of ~div-terms~ by filling in the missing expressions.  Use this to implement ~div-poly~, which takes two polys as arguments and returns a list of the quotient and remainder polys.
+
+#+NAME: div_terms
+#+begin_src scheme
+  (define (div-terms-inner L1 L2)
+    (if (empty-termlist? L1)
+        (list (the-empty-termlist) (the-empty-termlist))
+        (let ((t1 (first-term L1))
+              (t2 (first-term L2)))
+          (if (> (order t2) (order t1))
+              (list (the-empty-termlist) L1)
+              (let ((new-c (div (coeff t1) (coeff t2)))
+                    (new-o (- (order t1) (order t2))))
+                (let ((rest-of-result
+                       (div-terms-inner
+                        (add-terms-inner
+                         L1
+                         (mul-terms-inner `((,new-o ,new-c))
+                                          (neg-terms-inner L2)))
+                        L2)))
+                  (list
+                   ;; RESULT
+                   (add-terms-inner `((,new-o ,new-c))
+                                    (car rest-of-result))
+                   ;; REMAINDER
+                   (cadr rest-of-result))))))))
+
+
+  (define (div-terms TA TB)
+    (let ((L1 (terms TA))
+          (L2 (terms TB)))
+      (div-terms-inner L1 L2)))
+#+end_src
+
+#+NAME: div_poly
+#+begin_src scheme
+  (define (div-poly p1 p2)
+    (if (same-variable? (variable p1) (variable p2))
+        (make-poly (variable p1)
+                   (div (term-list p1)
+                        (term-list p2)))
+        (error "Polys not in same var -- ADD-POLY"
+               (list p1 p2))))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<poly_both_all>>
+  (div (make-poly 'x (make-dense-terms '((3 2) (1 5))))
+       (make-poly 'x (make-dense-terms '((2 9) (0 3)))))
+#+end_src
+
+#+RESULTS:
+: "An error occurred."
+
+*Exercise 2.92*. By imposing an ordering on variables, extend the polynomial package so that addition and multiplication of polynomials works for polynomials in different variables.  (This is not easy!)
+
+#+NAME: multi_variable
+#+begin_src scheme
+  (define (variable? x) (symbol? x))
+  (define (variables? x)
+    (or (variable? x) (all? (map variable? x))))
+
+  (define (same-variable? v1 v2)
+    (and (variables? v1) (variables? v2) (equal? v1 v2)))
+#+end_src
+
+#+NAME: poly_poly
+#+begin_src scheme
+  <<multi_variable>>
+  (define (s< a b)
+    (string< (symbol->string a) (symbol->string b)))
+  (define (s> a b)
+    (string> (symbol->string a) (symbol->string b)))
+
+  (define (sorder a b)
+    (if (s< a b) (list a b) (list b a)))
+
+  (use-modules (srfi srfi-1))
+
+  (define (insert-in-ordered-list sym-l l)
+    (define (insert-first sym il)
+      (reverse (fold (lambda (x y)
+                       (if (s< (car y) x)
+                           (cons x y)
+                           (cons (car y) (cons x (cdr y)))))
+                     (list sym) il)))
+    (if (null? sym-l)
+        l
+        (insert-in-ordered-list (cdr sym-l) (insert-first (car sym-l) l))))
+
+  (define (which-s< a b)
+    (if (s< a b) a b))
+  (define (which-s>= a b)
+    (if (s< a b) b a))
+
+  (define (install-polynomial-package)
+    (define (make-poly variable term-list)
+      (list variable term-list))
+
+    (define (variable p) (car p))
+    (define (term-list p) (cadr p))
+
+    (define (add-poly p1 p2)
+      (if (same-variable? (variable p1) (variable p2))
+          (make-poly (variable p1)
+                     (add (term-list p1)
+                          (term-list p2)))
+          (make-poly (insert-in-ordered-list (variable p2) (variable p1))
+                     (add-poly-poly (term-list p1)
+                                    (term-list p2)))))
+
+    (define (mul-poly p1 p2)
+      (if (same-variable? (variable p1) (variable p2))
+          (make-poly (variable p1)
+                     (mul (term-list p1)
+                          (term-list p2)))
+          (make-poly (insert-in-ordered-list (variable p2) (variable p1))
+                     (mul-poly-poly (term-list p1)
+                                    (term-list p2)))))
+
+    (define (sub-poly p1 p2) (add-poly p1 (neg-poly p2)))
+    (define (neg-poly p)
+      (make-poly (variable p) (neg (term-list p))))
+
+    (define (equ-poly? p1 p2)
+      (and (equal? (variable p1) (variable p2))
+           (equ? (term-list p1) (term-list p2))))
+    <<div_poly>>
+
+    (define ftag-poly (ftag 'polynomial))
+
+    (put-list '(polynomial) ftag-poly
+              `((project ,identity)
+                (raise ,identity)
+                (neg ,neg-terms)))
+    (put-list '(polynomial polynomial) ftag-poly
+              `((add ,add-poly)
+                (mul ,mul-poly)
+                (div ,div-poly)
+                (sub ,sub-poly)))
+    (put-list '(polynomial) identity
+              `((=zero empty-termlist?)))
+    (put-list '(polynomial polynomial) identity
+              `((equ? ,equ-poly?)))
+    (put-list 'polynomial ftag-poly
+              `((make ,make-poly)))
+    'done)
+
+  (define (add-poly-poly t1 t2)
+    (apply-generic 'add-poly-poly t1 t2))
+
+  (define (mul-poly-poly t1 t2)
+    (apply-generic 'mul-poly-poly t1 t2))
+#+end_src
+
+#+NAME: poly_poly_all
+#+begin_src scheme
+<<poly_both_all>>
+<<poly_poly>>
+(install-polynomial-package)
+#+end_src
+
+#+begin_src scheme :results replace
+  <<poly_poly_all>>
+  (define two-var-poly
+    (mul (make-poly '(x)
+                    (make-dense-terms '((3 2) (1 5) (0 3))))
+         (make-poly '(y)
+                    (make-dense-terms '((3 2) (1 5) (0 19))))))
+
+  (list two-var-poly
+        (mul two-var-poly (make-poly '(z) (make-dense-terms '((2 2)))))
+        (add two-var-poly (make-poly '(z) (make-dense-terms '((2 2))))))
+#+end_src
+
+#+RESULTS:
+: ((polynomial (x y) (dense (3 (dense (3 4) (1 10) (0 38))) (1 (dense (3 10) (1 25) (0 95))) (0 (dense (3 6) (1 15) (0 57))))) (polynomial (x y z) (dense (3 (dense (2 (dense (3 8) (1 20) (0 76))))) (1 (dense (2 (dense (3 20) (1 50) (0 190))))) (0 (dense (2 (dense (3 12) (1 30) (0 114))))))) (polynomial (x y z) (dense (3 (dense (3 4) (1 10) (0 38))) (1 (dense (3 10) (1 25) (0 95))) (0 (dense (2 2) (0 (dense (3 6) (1 15) (0 57))))))))
+
+*Exercise 2.93*. Modify the rational-arithmetic package to use generic operations, but change ~make-rat~ so that it does not attempt to reduce fractions to lowest terms.  Test your system by calling ~make-rational~ on two polynomials to produce a rational function
+
+#+begin_src scheme
+  (define p1 (make-polynomial 'x '((2 1)(0 1))))
+  (define p2 (make-polynomial 'x '((3 1)(0 1))))
+  (define rf (make-rational p2 p1))
+#+end_src
+
+Now add ~rf~ to itself, using ~add~. You will observe that this addition procedure does not reduce fractions to lowest terms.
+
+We can reduce polynomial fractions to lowest terms using the same idea we used with integers: modifying ~make-rat~ to divide both the numerator and the denominator by their greatest common divisor.  The notion of "greatest common divisor" makes sense for polynomials.  In fact, we can compute the GCD of two polynomials using essentially the same Euclid's Algorithm that works for integers.(7)  The integer version is
+
+#+begin_src scheme
+  (define (gcd a b)
+    (if (= b 0)
+        a
+        (gcd b (remainder a b))))
+#+end_src
+
+Using this, we could make the obvious modification to define a GCD operation that works on term lists:
+
+#+begin_src scheme
+  (define (gcd-terms a b)
+    (if (empty-termlist? b)
+        a
+        (gcd-terms b (remainder-terms a b))))
+#+end_src
+
+where ~remainder-terms~ picks out the remainder component of the list returned by the term-list division operation ~div-terms~ that was implemented in *Note Exercise 2-91.
+
+#+NAME: rn_test
+#+begin_src scheme
+  (define p1 (make-poly '(x) (make-dense-terms '((2 1)(0 1)))))
+  (define p2 (make-poly '(x) (make-dense-terms '((3 1)(0 1)))))
+  (define rf (make-rational p2 p1))
+#+end_src
+
+#+NAME: rational_number_poly
+#+begin_src scheme
+  (define (install-rational-package)
+    ;; internal procedures
+    (define (numer x) (car x))
+    (define (denom x) (cadr x))
+    (define (orig-make-rat n d)
+      (let ((g (gcd n d)))
+        (make-rat (/ n g) (/ d g))))
+    (define (make-rat n d)
+      (list n d))
+    (define (add-rat x y)
+      (make-rat (add (mul (numer x) (denom y))
+                     (mul (numer y) (denom x)))
+                (mul (denom x) (denom y))))
+    (define (sub-rat x y)
+      (make-rat (sub (mul (numer x) (denom y))
+                     (mul (numer y) (denom x)))
+                (mul (denom x) (denom y))))
+    (define (mul-rat x y)
+      (make-rat (mul (numer x) (numer y))
+                (mul (denom x) (denom y))))
+    (define (div-rat x y)
+      (make-rat (mul (numer x) (denom y))
+                (mul (denom x) (numer y))))
+
+    (define ftag-rat (ftag 'rational))
+
+    (put-list 'rational ftag-rat
+              `((make ,make-rat)))
+    (put-list 'rational identity
+              `((make-1 ,(lambda (x)
+                           (let ((rat_val
+                                  (rationalize (inexact->exact x) 1/1000000)))
+                             (make-rational (numerator rat_val)
+                                            (denominator rat_val)))))))
+    (put-list '(rational rational) ftag-rat
+              `((add ,add-rat)
+                (mul ,mul-rat)
+                (div ,div-rat)
+                (sub ,sub-rat)
+                (div ,div-rat)))
+    (put-list '(rational rational) identity
+              `((equ? ,(lambda (x y) (and (equ? (numer x) (numer y))
+                                          (equ? (denom x) (denom x)))))))
+    (put-list '(rational) identity
+              `((=zero? ,(lambda (x) (and (=zero? (numer x))
+                                          (=zero? (denom x)))))
+                (raise ,(lambda (x) (make-complex-from-real-imag
+                                     (div (numer x)
+                                          (denom x)) 0)))
+                (project ,(lambda (x)
+                            (make-scheme-number (div (numer x) (denom x)))))))
+    ;; (put 'make 'rational
+    ;;      (lambda (n d) (tag (make-rat n d))))
+
+    ;; (put 'make-1 'rational
+    ;;      (lambda (x) (let ((rat_val
+    ;;                         (rationalize (inexact->exact x) 1/1000000)))
+    ;;                    (make-rational (numerator rat_val)
+    ;;                                   (denominator rat_val)))))
+
+    ;; (define (rational-number->complex n)
+    ;;    (make-complex-from-real-imag (/ (numer n) (denom n)) 0))
+
+    (put-coercion 'rational 'complex
+                  (lambda (n) (make-complex-from-real-imag
+                               (/ (numer (contents n))
+                                  (denom (contents n))) 0)))
+    'done)
+
+  (define (make-rational n d)
+    ((get 'make 'rational) n d))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<poly_poly_all>>
+  <<rational_number_poly>>
+  (install-rational-package)
+  <<rn_test>>
+  `(,p1 ,p2 ,rf (add rf rf))
+#+end_src
+
+#+RESULTS:
+: ((polynomial (x) (dense ((2 1) (0 1)) ())) (polynomial (x) (dense ((3 1) (0 1)) ())) (rational (polynomial (x) (dense ((3 1) (0 1)) ())) (polynomial (x) (dense ((2 1) (0 1)) ()))) (add rf rf))
