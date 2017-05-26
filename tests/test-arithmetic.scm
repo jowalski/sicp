@@ -1,4 +1,4 @@
-(test-begin "rational arithmetic")
+(test-begin "rational arithmetic" 14)
 
 ;;; tests of arithmetic components from SICP
 ;;; 2017 Jowalski
@@ -16,11 +16,11 @@
   'rational (type-tag (make-rational 8 5)))
 
 (test-equal "add rational"
-  (make-rational 16 7)
+  (make-rational 4 7)
   (add (make-rational 2 7) (make-rational 2 7)))
 
 (test-equal "multiply rational"
-  3/8
+  (make-rational 3 8)
   (mul (make-rational 1 4) (make-rational 3 2)))
 
 (test-equal "subtract rational"

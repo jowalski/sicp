@@ -1,4 +1,4 @@
-(test-begin "polynomial arithmetic")
+(test-begin "polynomial arithmetic" 15)
 
 (define (make-simple-poly pairs . l)
   (make-poly '(x) (make-dense-terms pairs)))
@@ -52,6 +52,15 @@
                             (0 ,(make-dense-terms '((2 2) (0 3))))))
   (add (make-poly-w-var '(x) '((3 4) (2 1) (1 2)))
        (make-poly-w-var '(y) '((2 2) (0 3)))))
+
+(test-equal "gcd polynomial"
+  (make-simple-poly '((2 -1) (1 1)))
+  (greatest-common-divisor (make-simple-poly '((4 1) (3 -1) (2 -2) (1 2)))
+                           (make-simple-poly '((3 1) (1 -1)))))
+
+(test-error "gcd polynomial different vars (error)"
+            (greatest-common-divisor (make-simple-poly '((4 1) (3 -1) (2 -2) (1 2)))
+                                     (make-poly-w-var '(y) '((3 1) (1 -1)))))
 ;; ...
 
 (test-assert "equal simple polynomial"
@@ -80,3 +89,4 @@
 ;; ...
 
 (test-end)
+;; (polynomial (x) (dense (((1 2/3) (0 10/9)) ((1 17/9) (0 -10/3))) ())))

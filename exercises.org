@@ -5231,6 +5231,8 @@ First, we handle ordinary numbers and tag them "scheme-number".
                             (denominator rat_val)))))
     (put 'neg '(scheme-number)
          (lambda (x) (tag (- x))))
+    (put 'greatest-cd '(scheme-number scheme-number)
+         (lambda (x y) (tag (gcd x y))))
 
     (put 'make-1 'scheme-number drop)
 
@@ -5869,7 +5871,8 @@ This won't work for the case where there is a suitable mixed-type operation, sin
     (let ((type-tags (map type-tag args)))
       (let ((proc (get op type-tags)))
         (if proc
-            ((if (memq op '(raise project equ? =zero? div)) identity drop)
+            ((if (memq op '(raise project equ? =zero? div
+                            greatest-cd)) identity drop)
              (apply proc (map contents args)))
             (if (not (same? type-tags))
                 (let ((newargs (raise-all-to-same-level args)))
@@ -6187,7 +6190,7 @@ We will create a system for manipulating (including adding and multiplying) poly
 To manipulate term lists, we assume we have constructors ~the-empty-termlist~ and ~adjoin-term~, that adjoins a new term to the list. Also, we have ~empty-termlist?~, ~first-term~, and ~rest-terms~. And selectors ~order~ and ~coeff~ for an individual term.
 
 Since we've used the generic ~add~ and ~mul~, and defined a type ~polynomial~, we can add and multiply different polynomials, through the principal of "data-directed recursion".
-***** TODO Representing term lists
+***** Representing term lists
 A factor in representing terms is the "density" of polynomials, i.e. the fraction of orders it has nonzero coefficients for. A good dense representation would be an ordered list, of single values, since it would mostly have nonzero values in it and would be a good use of space. But for sparse polynomials, such as will be more likely in our case, it might be better to only represent nonzero terms. So an ordered list of two-element lists (consisting of order and coefficient)would be reasonable.
 
 #+begin_src scheme
@@ -6487,7 +6490,7 @@ A factor in representing terms is the "density" of polynomials, i.e. the fractio
       (list term-list (if (null? l) '() (car l))))
 
     (define (terms l) (car l))
-    (define (remainder l) (cadr l))
+    (define (remainder-terms l) (cadr l))
 
     (define (adjoin-term term term-list)
       (if (=zero? (coeff term))
@@ -6595,6 +6598,8 @@ A factor in representing terms is the "density" of polynomials, i.e. the fractio
 
     <<div_terms>>
 
+    <<gcd_terms>>
+
     (define (mul-term-by-all-terms t1 L)
       (if (empty-termlist? L)
           (the-empty-termlist)
@@ -6614,7 +6619,7 @@ A factor in representing terms is the "density" of polynomials, i.e. the fractio
 
     (define (=zero-termlist? x)
       (and (empty-termlist? (terms x))
-           (null? (remainder x))))
+           (null? (remainder-terms x))))
 
     (put-list '(dense) ftag-dense
               `((project ,identity)
@@ -6625,7 +6630,8 @@ A factor in representing terms is the "density" of polynomials, i.e. the fractio
                 (add-poly-poly ,add-poly-poly-term)
                 (mul ,mul-terms)
                 (div ,div-terms)
-                (mul-poly-poly ,mul-poly-poly-term)))
+                (mul-poly-poly ,mul-poly-poly-term)
+                (greatest-cd ,gcd-terms)))
     (put-list '(dense) identity
               `((=zero? ,=zero-termlist?)))
     (put-list '(dense dense) identity
@@ -6850,7 +6856,6 @@ Complete the following definition of ~div-terms~ by filling in the missing expre
                    ;; REMAINDER
                    (cadr rest-of-result))))))))
 
-
   (define (div-terms TA TB)
     (let ((L1 (terms TA))
           (L2 (terms TB)))
@@ -6950,7 +6955,9 @@ Complete the following definition of ~div-terms~ by filling in the missing expre
     (define (equ-poly? p1 p2)
       (and (equal? (variable p1) (variable p2))
            (equ? (term-list p1) (term-list p2))))
+
     <<div_poly>>
+    <<gcd_poly>>
 
     (define (=zero-poly? x) (=zero? (term-list x)))
 
@@ -6964,7 +6971,8 @@ Complete the following definition of ~div-terms~ by filling in the missing expre
               `((add ,add-poly)
                 (mul ,mul-poly)
                 (div ,div-poly)
-                (sub ,sub-poly)))
+                (sub ,sub-poly)
+                (greatest-cd ,gcd-poly)))
     (put-list '(polynomial) identity
               `((=zero? ,=zero-poly?)))
     (put-list '(polynomial polynomial) identity
@@ -7046,10 +7054,12 @@ where ~remainder-terms~ picks out the remainder component of the list returned b
     ;; internal procedures
     (define (numer x) (car x))
     (define (denom x) (cadr x))
-    (define (orig-make-rat n d)
-      (let ((g (gcd n d)))
-        (make-rat (/ n g) (/ d g))))
     (define (make-rat n d)
+      (if (=zero? d)
+          (error "Zero in denominator")
+          (let ((g (greatest-common-divisor n d)))
+            (basic-make-rat (div n g) (div d g))))    )
+    (define (basic-make-rat n d)
       (list n d))
     (define (add-rat x y)
       (make-rat (add (mul (numer x) (denom y))
@@ -7067,6 +7077,10 @@ where ~remainder-terms~ picks out the remainder component of the list returned b
                 (mul (denom x) (numer y))))
 
     (define ftag-rat (ftag 'rational))
+    (define (gcd-rat a b)
+      (greatest-common-divisor a b))
+    (define (project-rat x)
+      (make-scheme-number (round (div (numer x) (denom x)))))
 
     (put-list 'rational ftag-rat
               `((make ,make-rat)))
@@ -7080,26 +7094,17 @@ where ~remainder-terms~ picks out the remainder component of the list returned b
               `((add ,add-rat)
                 (mul ,mul-rat)
                 (div ,div-rat)
-                (sub ,sub-rat)))
+                (sub ,sub-rat)
+                (greatest-cd ,gcd-rat)))
     (put-list '(rational rational) identity
               `((equ? ,(lambda (x y) (and (equ? (numer x) (numer y))
                                           (equ? (denom x) (denom x)))))))
     (put-list '(rational) identity
-              `((=zero? ,(lambda (x) (and (=zero? (numer x))
-                                          (=zero? (denom x)))))
+              `((=zero? ,(lambda (x) (=zero? (numer x))))
                 (raise ,(lambda (x) (make-complex-from-real-imag
                                      (div (numer x)
                                           (denom x)) 0)))
-                (project ,(lambda (x)
-                            (make-scheme-number (div (numer x) (denom x)))))))
-    ;; (put 'make 'rational
-    ;;      (lambda (n d) (tag (make-rat n d))))
-
-    ;; (put 'make-1 'rational
-    ;;      (lambda (x) (let ((rat_val
-    ;;                         (rationalize (inexact->exact x) 1/1000000)))
-    ;;                    (make-rational (numerator rat_val)
-    ;;                                   (denominator rat_val)))))
+                (project ,project-rat)))
 
     ;; (define (rational-number->complex n)
     ;;    (make-complex-from-real-imag (/ (numer n) (denom n)) 0))
@@ -7128,12 +7133,40 @@ where ~remainder-terms~ picks out the remainder component of the list returned b
 *Exercise 2.94*. Using ~div-terms~, implement the procedure ~remainder-terms~ and use this to define ~gcd-terms~ as above. Now write a procedure ~gcd-poly~ that computes the polynomial GCD of two polys.  (The procedure should signal an error if the two polys are not in the same variable.)  Install in the system a generic operation ~greatest-common-divisor~ that reduces to ~gcd-poly~ for polynomials and to ordinary ~gcd~ for ordinary numbers.  As a test, try
 
 #+begin_src scheme
-  (define p1 (make-polynomial 'x '((4 1) (3 -1) (2 -2) (1 2))))
-  (define p2 (make-polynomial 'x '((3 1) (1 -1))))
+  (define p1 (make-poly 'x '((4 1) (3 -1) (2 -2) (1 2))))
+  (define p2 (make-poly 'x '((3 1) (1 -1))))
   (greatest-common-divisor p1 p2)
 #+end_src
 
 and check your result by hand.
+
+
+#+NAME: gcd_poly
+#+begin_src scheme
+  (define (gcd-poly p1 p2)
+    (if (same-variable? (variable p1) (variable p2))
+        (make-poly (variable p1)
+                   (greatest-common-divisor (term-list p1) (term-list p2)))
+        (error "Polynomials of different variables")))
+#+end_src
+
+#+NAME: gcd_terms
+#+begin_src scheme
+  (define (gcd-terms-inner a b)
+    (if (empty-termlist? b)
+        a
+        (gcd-terms-inner b (remainder-terms (div-terms-inner a b)))))
+  (define (gcd-terms a b)
+    (let ((ai (terms a))
+          (bi (terms b)))
+      (make-terms (gcd-terms-inner ai bi))))
+#+end_src
+
+#+NAME: greatest_cd
+#+begin_src scheme
+  (define (greatest-common-divisor a b)
+    (apply-generic 'greatest-cd a b))
+#+end_src
 
 #+NAME: current_arithmetic_file
 #+begin_src scheme :tangle arithmetic.scm
@@ -7146,9 +7179,20 @@ and check your result by hand.
   <<poly_poly>>
   <<poly_dense_sparse_both>>
   <<rational_number_poly>>
+  <<greatest_cd>>
   (install-rational-package)
   (install-polynomial-package)
   (install-dense-package)
   (install-sparse-package)
   <<dense_sparse_globals>>
 #+end_src
+
+#+begin_src scheme :results replace
+  <<current_arithmetic_file>>
+  (define p1 (make-poly 'x (make-dense-terms '((4 1) (3 -1) (2 -2) (1 2)))))
+  (define p2 (make-poly 'x (make-dense-terms '((3 1) (1 -1)))))
+  (greatest-common-divisor p1 p2)
+#+end_src
+
+#+RESULTS:
+: (polynomial x (dense ((2 -1) (1 1)) ()))
