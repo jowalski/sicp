@@ -6187,7 +6187,7 @@ We will create a system for manipulating (including adding and multiplying) poly
 To manipulate term lists, we assume we have constructors ~the-empty-termlist~ and ~adjoin-term~, that adjoins a new term to the list. Also, we have ~empty-termlist?~, ~first-term~, and ~rest-terms~. And selectors ~order~ and ~coeff~ for an individual term.
 
 Since we've used the generic ~add~ and ~mul~, and defined a type ~polynomial~, we can add and multiply different polynomials, through the principal of "data-directed recursion".
-***** Representing term lists
+***** TODO Representing term lists
 A factor in representing terms is the "density" of polynomials, i.e. the fraction of orders it has nonzero coefficients for. A good dense representation would be an ordered list, of single values, since it would mostly have nonzero values in it and would be a good use of space. But for sparse polynomials, such as will be more likely in our case, it might be better to only represent nonzero terms. So an ordered list of two-element lists (consisting of order and coefficient)would be reasonable.
 
 #+begin_src scheme
@@ -6414,7 +6414,7 @@ A factor in representing terms is the "density" of polynomials, i.e. the fractio
     (for-each (lambda (x) (put (car x) type (tagfun (cadr x)))) l))
 #+end_src
 
-#+NAME: poly_both
+#+NAME: poly_poly_both
 #+begin_src scheme
   <<put_list>>
   (define (install-polynomial-package)
@@ -6474,18 +6474,20 @@ A factor in representing terms is the "density" of polynomials, i.e. the fractio
     (put-list 'polynomial ftag-poly
               `((make ,make-poly)))
     'done)
+#+end_src
 
+#+NAME: poly_dense_sparse_both
+#+begin_src scheme
   ;; the term-list format is list of (<order> <coeff>) pairs
   ;; ((3 2) (2 3) (0 1))
   (define (install-dense-package)
     ;; internal procedures
     ;; representation of terms and term lists
-    (define (make-terms term-list)
-      (list term-list '()))
+    (define (make-terms term-list . l)
+      (list term-list (if (null? l) '() (car l))))
 
     (define (terms l) (car l))
     (define (remainder l) (cadr l))
-
 
     (define (adjoin-term term term-list)
       (if (=zero? (coeff term))
@@ -6544,22 +6546,41 @@ A factor in representing terms is the "density" of polynomials, i.e. the fractio
     ;; add/multiply two polynomials
     (define (add-poly-f addfun tagfun)
       (define (rfun t v)
-        (cond ((null? t) (list (make-term 0 (tagfun v))))
-              ((zero? (order (first-term t)))
-               (list (make-term 0 (tagfun (addfun v (coeff (first-term t)))))))
-              (else (cons (first-term t)
-                          (rfun (cdr t) v)))))
+        (let ((t1 (terms t)))
+          (make-terms
+           (cond ((null? t1) (list (make-term 0 (tagfun v))))
+                 ((zero? (order (first-term t1)))
+                  (list (make-term 0 (tagfun (addfun v (coeff (first-term t1)))))))
+                 (else (cons (first-term t1)
+                             (terms (rfun (make-terms (cdr t1)) v))))))))
       rfun)
 
+    ;; (cond ((null? t) (list (make-term 0 (tagfun v))))
+    ;;           ((zero? (order (first-term t)))
+    ;;            (list (make-term 0 (tagfun (addfun v (coeff (first-term t)))))))
+    ;;           (else (cons (first-term t)
+    ;;                       (rfun (cdr t) v))))
     (define add-poly-val (add-poly-f add identity))
     (define add-poly-poly-term (add-poly-f add-poly-val (ftag-dense identity)))
+    ;; (define add-poly-poly-term-inner (add-poly-f add-poly-val (ftag-dense identity)))
+    ;; (define (add-poly-poly-term p1 p2)
+    ;;   (let ((t1 (terms p1))
+    ;;         (t2 (terms p2)))
+    ;;     (make-terms (add-poly-poly-term-inner t1 t2))))
 
     (define (mul-poly-f f)
       (lambda (t v)
-        (map (lambda (term) (make-term (order term) (f v (coeff term)))) t)))
-
+        (let ((t1 (terms t)))
+          (make-terms (map (lambda (term) (make-term (order term) (f v (coeff term)))) t1)))))
+    ;; (map (lambda (term) (make-term (order term) (f v (coeff term)))) t)
     (define mul-poly-val (mul-poly-f mul))
     (define mul-poly-poly-term (mul-poly-f (ftag-dense mul-poly-val)))
+    ;; (define mul-poly-poly-term-inner (mul-poly-f (ftag-dense mul-poly-val)))
+    ;; (define (mul-poly-poly-term p1 p2)
+    ;;   (let ((t1 (terms p1))
+    ;;         (t2 (terms p2)))
+    ;;     (make-terms (mul-poly-poly-term-inner t1 t2))))
+
 
     (define (mul-terms-inner t1 t2)
       (if (empty-termlist? t1)
@@ -6591,6 +6612,10 @@ A factor in representing terms is the "density" of polynomials, i.e. the fractio
     (define (neg-terms L)
       (make-terms (neg-terms-inner (terms L))))
 
+    (define (=zero-termlist? x)
+      (and (empty-termlist? (terms x))
+           (null? (remainder x))))
+
     (put-list '(dense) ftag-dense
               `((project ,identity)
                 (raise ,identity)
@@ -6602,7 +6627,7 @@ A factor in representing terms is the "density" of polynomials, i.e. the fractio
                 (div ,div-terms)
                 (mul-poly-poly ,mul-poly-poly-term)))
     (put-list '(dense) identity
-              `((=zero empty-termlist?)))
+              `((=zero? ,=zero-termlist?)))
     (put-list '(dense dense) identity
               `((equ? ,equ-terms?)))
     (put-list 'dense ftag-dense
@@ -6715,30 +6740,38 @@ A factor in representing terms is the "density" of polynomials, i.e. the fractio
                 ;; (mul-poly, mul-poly-poly)
                 ))
     (put-list '(sparse) identity
-              `((=zero empty-termlist?)))
+              `((=zero ,empty-termlist?)))
     (put-list '(sparse sparse) identity
               `((equ? ,equ-terms?)))
     (put-list 'sparse ftag-sparse
               `((make-terms ,make-terms)))
     'done)
+#+end_src
 
+#+NAME: dense_sparse_globals
+#+begin_src scheme
   (define (make-sparse-terms terms)
     ((get 'make-terms 'sparse) terms))
 
   (define (make-poly var terms)
     ((get 'make 'polynomial) var terms))
 
-  (define (make-dense-terms terms)
-    ((get 'make-terms 'dense) terms))
+  (define make-dense-terms (get 'make-terms 'dense))
 
   ;; (define (equ-terms? t1 t2)
   ;;   (apply-generic 'equ-terms? t1 t2))
 
-  (define (neg-terms t1 t2)
-    (apply-generic 'neg-terms t1 t2))
+  (define (neg-terms t1)
+    (apply-generic 'neg t1))
 
   (define (div p1 p2)
     (apply-generic 'div p1 p2))
+#+end_src
+
+#+NAME: poly_both
+#+begin_src scheme
+  <<poly_poly_both>>
+  <<poly_dense_sparse_both>>
 #+end_src
 
 #+NAME: poly_both_all
@@ -6752,6 +6785,7 @@ A factor in representing terms is the "density" of polynomials, i.e. the fractio
   (install-polynomial-package)
   (install-dense-package)
   (install-sparse-package)
+  <<dense_sparse_globals>>
 #+end_src
 
 #+begin_src scheme :results replace
@@ -6918,19 +6952,21 @@ Complete the following definition of ~div-terms~ by filling in the missing expre
            (equ? (term-list p1) (term-list p2))))
     <<div_poly>>
 
+    (define (=zero-poly? x) (=zero? (term-list x)))
+
     (define ftag-poly (ftag 'polynomial))
 
     (put-list '(polynomial) ftag-poly
               `((project ,identity)
                 (raise ,identity)
-                (neg ,neg-terms)))
+                (neg ,neg-poly)))
     (put-list '(polynomial polynomial) ftag-poly
               `((add ,add-poly)
                 (mul ,mul-poly)
                 (div ,div-poly)
                 (sub ,sub-poly)))
     (put-list '(polynomial) identity
-              `((=zero empty-termlist?)))
+              `((=zero? ,=zero-poly?)))
     (put-list '(polynomial polynomial) identity
               `((equ? ,equ-poly?)))
     (put-list 'polynomial ftag-poly
@@ -6995,7 +7031,7 @@ Using this, we could make the obvious modification to define a GCD operation tha
         (gcd-terms b (remainder-terms a b))))
 #+end_src
 
-where ~remainder-terms~ picks out the remainder component of the list returned by the term-list division operation ~div-terms~ that was implemented in *Note Exercise 2-91.
+where ~remainder-terms~ picks out the remainder component of the list returned by the term-list division operation ~div-terms~ that was implemented in Exercise 2-91.
 
 #+NAME: rn_test
 #+begin_src scheme
@@ -7044,8 +7080,7 @@ where ~remainder-terms~ picks out the remainder component of the list returned b
               `((add ,add-rat)
                 (mul ,mul-rat)
                 (div ,div-rat)
-                (sub ,sub-rat)
-                (div ,div-rat)))
+                (sub ,sub-rat)))
     (put-list '(rational rational) identity
               `((equ? ,(lambda (x y) (and (equ? (numer x) (numer y))
                                           (equ? (denom x) (denom x)))))))
@@ -7089,3 +7124,31 @@ where ~remainder-terms~ picks out the remainder component of the list returned b
 
 #+RESULTS:
 : ((polynomial (x) (dense ((2 1) (0 1)) ())) (polynomial (x) (dense ((3 1) (0 1)) ())) (rational (polynomial (x) (dense ((3 1) (0 1)) ())) (polynomial (x) (dense ((2 1) (0 1)) ()))) (add rf rf))
+
+*Exercise 2.94*. Using ~div-terms~, implement the procedure ~remainder-terms~ and use this to define ~gcd-terms~ as above. Now write a procedure ~gcd-poly~ that computes the polynomial GCD of two polys.  (The procedure should signal an error if the two polys are not in the same variable.)  Install in the system a generic operation ~greatest-common-divisor~ that reduces to ~gcd-poly~ for polynomials and to ordinary ~gcd~ for ordinary numbers.  As a test, try
+
+#+begin_src scheme
+  (define p1 (make-polynomial 'x '((4 1) (3 -1) (2 -2) (1 2))))
+  (define p2 (make-polynomial 'x '((3 1) (1 -1))))
+  (greatest-common-divisor p1 p2)
+#+end_src
+
+and check your result by hand.
+
+#+NAME: current_arithmetic_file
+#+begin_src scheme :tangle arithmetic.scm
+  <<eq_zero>>
+  <<negative>>
+  <<variable>>
+  <<complex_all>>
+  <<install_full_package>>
+  <<put_list>>
+  <<poly_poly>>
+  <<poly_dense_sparse_both>>
+  <<rational_number_poly>>
+  (install-rational-package)
+  (install-polynomial-package)
+  (install-dense-package)
+  (install-sparse-package)
+  <<dense_sparse_globals>>
+#+end_src
