@@ -1,0 +1,61 @@
+# -*- org-babel-use-quick-and-dirty-noweb-expansion: t; -*-
+#+FILETAGS: @personal
+#+LaTeX_HEADER: \newcommand{\mya}[2]{ ( A\, #1\, #2) }
+#+LaTeX_HEADER: \usepackage{forest}
+#+LaTeX_HEADER: \usepackage{amsmath}
+#+LaTeX_HEADER: \newcommand{\leaf}[3]{{(cc #1 #2)\\[-1ex]\scriptsize #3}}
+* Exercises for the Structure and Interpretation of Computer Languages
+:PROPERTIES:
+:header-args: :results silent :noweb yes
+:header-args: :noweb yes
+:END:
+** Chapter 3: Modularity, Objects, and State
+ A powerful design strategy is to base the structure of our programs on the
+ structure of the system being modeled. For each object in the system we
+ construct a computational object. For each action we define an
+ operation. Another approach concentrates on "streams" of information that flow
+ in the system.
+*** 3.1 Assignment and Local State
+ An object "has state" if its behavior is influenced by its history. We can
+ characterize an object's state by variables.
+**** 3.1.1 Local State Variables
+A bank account object that can handle deposits and withdrawals could be defined
+with:
+
+
+#+begin_src scheme
+  (define (make-account balance)
+    (define (withdraw amount)
+      (if (>= balance amount)
+          (begin (set! balance (- balance amount))
+                 balance)
+          "Insufficient funds"))
+    (define (deposit amount)
+      (set! balance (+ balance amount))
+      balance)
+    (define (dispatch m)
+      (cond ((eq? m 'withdraw) withdraw)
+            ((eq? m 'deposit) deposit)
+            (else (error "Unknown request -- MAKE-ACCOUNT"
+                         m))))
+    dispatch)
+#+end_src
+
+*Exercise 3.1*. An "accumulator" is a procedure that is called repeatedly with a single numeric argument and accumulates its arguments into a sum.  Each time it is called, it returns the currently accumulated sum.  Write a procedure ~make-accumulator~ that generates accumulators, each maintaining an independent sum. The input to ~make-accumulator~ should specify the initial value of the sum; for example
+
+#+begin_src scheme
+  (define A (make-accumulator 5))
+
+  (A 10)
+  15
+
+  (A 10)
+  25
+#+end_src
+
+#+begin_src scheme
+  (define (make-accumulator n)
+    (lambda (x)
+      (set! n (+ n x))
+      n))
+#+end_src
