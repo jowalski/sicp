@@ -1,4 +1,4 @@
-(test-begin "rational arithmetic" 14)
+(test-begin "rational arithmetic" 17)
 
 ;;; tests of arithmetic components from SICP
 ;;; 2017 Jowalski
@@ -27,6 +27,7 @@
   (make-rational 2 9)
   (sub (make-rational 1 3) (make-rational 1 9)))
 
+;; should this reduce to 3 (scheme-number?)
 (test-equal "divide rational"
   (make-rational 3 1)
   (div (make-rational 21 1) (make-rational 7 1)))
@@ -56,5 +57,18 @@
 (test-assert "make rational polynomial"
   (pair? (make-rational (make-poly '(x) (make-dense-terms '((2 1))))
                         (make-poly '(x) (make-dense-terms '((0 1)))))))
+
+;; reduce terms to lowest without losing info
+(test-equal "reduce integer rational to scheme-number (add)"
+  5
+  (add (make-rational 3 1) (make-rational 2 1)))
+
+(test-equal "reduce integer rational to scheme-number (mul)"
+  6
+  (mul (make-rational 3 1) (make-rational 2 1)))
+
+(test-equal "reduce integer rational to scheme-number (sub)"
+  1
+  (sub (make-rational 3 1) (make-rational 2 1)))
 
 (test-end)

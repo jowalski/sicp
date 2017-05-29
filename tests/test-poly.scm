@@ -1,4 +1,4 @@
-(test-begin "polynomial arithmetic" 15)
+(test-begin "polynomial arithmetic" 19)
 
 (define (make-simple-poly pairs . l)
   (make-poly '(x) (make-dense-terms pairs)))
@@ -61,6 +61,33 @@
 (test-error "gcd polynomial different vars (error)"
             (greatest-common-divisor (make-simple-poly '((4 1) (3 -1) (2 -2) (1 2)))
                                      (make-poly-w-var '(y) '((3 1) (1 -1)))))
+
+(let ((P_1 (make-simple-poly '((2 1) (1 -2) (0 1))))
+      (P_2 (make-simple-poly '((2 11) (0 7))))
+      (P_3 (make-simple-poly '((1 13) (0 5)))))
+  (let ((Q_1 (mul P_1 P_2))
+        (Q_2 (mul P_1 P_3)))
+    (test-equal "gcd reduce and simplify polynomial coefficients to integers"
+      P_1
+      (greatest-common-divisor Q_1 Q_2))
+    (test-equal "reduce-arith on polynomial"
+      (list P_2 P_3)
+      (reduce-arith Q_1 Q_2))))
+
+(let   ((p1 (make-simple-poly '((1 1) (0 1))))
+        (p2 (make-simple-poly '((3 1) (0 -1))))
+        (p3 (make-simple-poly '((1 1))))
+        (p4 (make-simple-poly '((2 1) (0 -1)))))
+  (let ((rf1 (make-rational p1 p2))
+        (rf2 (make-rational p3 p4)))
+    (test-equal "reduce rational polynomials automatically"
+    (make-rational (make-simple-poly '((3 -1) (2 -2) (1 -3) (0 -1)))
+                   (make-simple-poly '((4 -1) (3 -1) (1 1) (0 1))))
+    (add rf1 rf2))))
+
+(test-equal "reduce rational integers automatically"
+  (make-rational 5 2)
+  (add (make-rational 2 3) (make-rational 11 6)))
 ;; ...
 
 (test-assert "equal simple polynomial"
@@ -89,4 +116,3 @@
 ;; ...
 
 (test-end)
-;; (polynomial (x) (dense (((1 2/3) (0 10/9)) ((1 17/9) (0 -10/3))) ())))
