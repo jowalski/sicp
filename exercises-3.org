@@ -53,9 +53,4374 @@ with:
   25
 #+end_src
 
+#+NAME: accumulator
 #+begin_src scheme
   (define (make-accumulator n)
     (lambda (x)
       (set! n (+ n x))
       n))
 #+end_src
+
+#+begin_src scheme
+  <<accumulator>>
+  (define A (make-accumulator 10))
+  (define B (make-accumulator -20))
+
+  `(,(A 20) ,(B 5))
+
+#+end_src
+
+*Exercise 3.2*. In software-testing applications, it is useful to be able to count the number of times a given procedure is called during the course of a computation.  Write a procedure `make-monitored' that takes as input a procedure, `f', that itself takes one input.  The result returned by `make-monitored' is a third procedure, say `mf', that keeps track of the number of times it has been called by maintaining an internal counter.  If the input to `mf' is the special symbol `how-many-calls?', then `mf' returns the value of the counter.  If the input is the special symbol `reset-count', then `mf' resets the counter to zero.  For any other input, `mf' returns the result of calling `f' on that input and increments the counter.  For instance, we could make a monitored version of the `sqrt' procedure:
+
+#+begin_src scheme
+  (define s (make-monitored sqrt))
+
+  (s 100)
+  10
+
+  (s 'how-many-calls?)
+  1
+#+end_src
+
+#+NAME: make_monitored
+#+begin_src scheme
+  (define (make-monitored f)
+    (let ((n-calls 0))
+      (define (reset-count)
+        (set! n-calls 0))
+      (define (make-call m)
+        (begin (set! n-calls (+ n-calls 1))
+               (f m)))
+      (define (dispatch m)
+        (cond ((eq? m 'how-many-calls?) n-calls)
+              ((eq? m 'reset-count) (reset-count))
+              (else (make-call m))))
+      dispatch))
+#+end_src
+
+*Exercise 3.3*. Modify the ~make-account~ procedure so that it creates password-protected accounts.  That is, ~make-account~ should take a symbol as an additional argument, as in
+
+#+begin_src scheme
+  (define acc (make-account 100 'secret-password))
+#+end_src
+
+The resulting account object should process a request only if it is accompanied by the password with which the account was created, and should otherwise return a complaint:
+
+#+begin_src scheme
+  ((acc 'secret-password 'withdraw) 40)
+  60
+
+  ((acc 'some-other-password 'deposit) 50)
+  "Incorrect password"
+#+end_src
+
+#+NAME: make_account_pwd
+#+begin_src scheme
+  (define (make-account-pwd balance pwd)
+    (define (withdraw amount)
+      (and (or (>= balance amount)
+               (error "Insufficient funds!"))
+           (begin (set! balance (- balance amount))
+                  balance)))
+    (define (deposit amount)
+      (begin (set! balance (+ balance amount))
+             balance))
+    (define (dispatch p m)
+      (cond ((not (eq? p pwd)) (error "Incorrect password"))
+            ((eq? m 'withdraw) withdraw)
+            ((eq? m 'deposit) deposit)
+            (else (error "Unknown request -- MAKE ACCOUNT"))))
+    dispatch)
+#+end_src
+
+#+begin_src scheme :results replace
+<<make_account_pwd>>
+(define acc (make-account-pwd 100 'blahblah))
+(list ((acc 'blahblah 'withdraw) 50)
+      ((acc 'blahblah 'deposit) 20))
+#+end_src
+
+#+begin_src scheme :results output replace
+<<make_account_pwd>>
+(define acc (make-account-pwd 100 'blahblah))
+((acc 'blah 'withdraw) 20)
+#+end_src
+
+#+RESULTS:
+: "An error occurred."
+
+*Exercise 3.4*. Modify the ~make-account~ procedure of *Note Exercise 3-3 by adding another local state variable so that, if an account is accessed more than seven consecutive times with an incorrect password, it invokes the procedure ~call-the-cops~.
+
+(tested)
+#+begin_src scheme
+  (define (make-account-pwd balance pwd)
+    (let ((consecutive-incorrect 0))
+      (define (withdraw amount)
+        (and (or (>= balance amount)
+                 (error "Insufficient funds!"))
+             (begin (set! balance (- balance amount))
+                    balance)))
+      (define (deposit amount)
+        (begin (set! balance (+ balance amount))
+               balance))
+      (define (incorrect-pwd)
+        (if (> consecutive-incorrect 7)
+            (begin (display "7 consecutive incorrect password attempts!\n")
+                   (call-the-cops))
+            (begin (set! consecutive-incorrect (+ 1 consecutive-incorrect))
+                   (error "Incorrect password"))))
+      (define (correct-pwd)
+        (set! consecutive-incorrect 0))
+      (define (dispatch p m)
+        (if (not (eq? p pwd))
+            (incorrect-pwd)
+            (begin (correct-pwd)
+                   (cond ((eq? m 'withdraw) withdraw)
+                         ((eq? m 'deposit) deposit)
+                         (else (error "Unknown request -- MAKE ACCOUNT"))))))
+      dispatch))
+
+  (define (call-the-cops)
+    (display "Calling the police!\n")
+    (lambda (x) (#nil)))
+#+end_src
+**** 3.1.2 The Benefits of Introducing Assignment
+Introducing assignment leads us to a thicket of difficult issues, however having objects with local state is a powerful technique for maintaining modular design. The Monte-Carlo method illustrates a use of local state, namely a seed to a random sequence of numbers.
+
+#+NAME: rand
+#+begin_src scheme
+  ;; note: using guile's random functions, each call to
+  ;; ~random~ updates x to new random-state
+  (define rand
+    (let ((i 1)
+          (n 1000000))
+      (let ((x (seed->random-state i)))
+        (lambda ()
+          (random n x)))))
+#+end_src
+
+#+NAME: monte_carlo
+#+begin_src scheme
+  (define (estimate-pi trials)
+    (sqrt (/ 6 (monte-carlo trials cesaro-test))))
+
+  (define (cesaro-test)
+     (= (gcd (rand) (rand)) 1))
+
+  (define (monte-carlo trials experiment)
+    (define (iter trials-remaining trials-passed)
+      (cond ((= trials-remaining 0)
+             (/ trials-passed trials))
+            ((experiment)
+             (iter (- trials-remaining 1) (+ trials-passed 1)))
+            (else
+             (iter (- trials-remaining 1) trials-passed))))
+    (iter trials 0))
+#+end_src
+
+#+begin_src scheme :results replace
+<<rand>>
+<<estimate_pi>>
+(estimate-pi 100000)
+#+end_src
+
+#+RESULTS:
+: 3.142445936887333
+
+Conclusion: if we were to not have a ~rand~ function with local state, we would have to take less modular approach, and pass the initial state to an outer function. Each function would have to be concerned with this state (see Section 3.1.2 for the alternative function), and it would be harder to isolate the Monte Carlo process.
+
+If we want to model processes with time-varying local state, we can make computational objects with local state variables. While it's tempting to think this is more modular than if all state is manipulated explicitly, it is not so simple (as we will see later).
+
+*Exercise 3.5*. "Monte Carlo integration" is a method of estimating definite integrals by means of Monte Carlo simulation. Consider computing the area of a region of space described by a predicate P(x, y) that is true for points (x, y) in the region and false for points not in the region.  For example, the region contained within a circle of radius 3 centered at (5, 7) is described by the predicate that tests whether (x - 5)^2 + (y - 7)^2 <= 3^2.  To estimate the area of the region described by such a predicate, begin by choosing a rectangle that contains the region.  For example, a rectangle with diagonally opposite corners at (2, 4) and (8, 10) contains the circle above.  The desired integral is the area of that portion of the rectangle that lies in the region.  We can estimate the integral by picking, at random, points (x,y) that lie in the rectangle, and testing P(x, y) for each point to determine whether the point lies in the region.  If we try this with many points, then the fraction of points that fall in the region should give an estimate of the proportion of the rectangle that lies in the region.  Hence, multiplying this fraction by the area of the entire rectangle should produce an estimate of the integral.
+
+Implement Monte Carlo integration as a procedure ~estimate-integral~ that takes as arguments a predicate ~P~, upper and lower bounds ~x1~, ~x2~, ~y1~, and ~y2~ for the rectangle, and the number of trials to perform in order to produce the estimate. Your procedure should use the same ~monte-carlo~ procedure that was used above to estimate [pi].  Use your ~estimate-integral~ to produce an estimate of [pi] by measuring the area of a unit circle.
+
+You will find it useful to have a procedure that returns a number chosen at random from a given range.  The following ~random-in-range~ procedure implements this in terms of the ~random~ procedure used in section 1-2-6, which returns a nonnegative number less than its input.
+
+#+NAME: random_in_range
+#+begin_src scheme
+  (define (random-in-range low high)
+    (let ((range (- high low)))
+      (+ low (random range))))
+#+end_src
+
+#+NAME: estimate_integral
+#+begin_src scheme
+  <<random_in_range>>
+  (define (estimate-integral P x1 x2 y1 y2 trials)
+    (* 1.0 (- x2 x1) (- y2 y1)
+       (monte-carlo trials (lambda ()
+                             (P (random-in-range x1 x2)
+                                (random-in-range y1 y2))))))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<monte_carlo>>
+  <<estimate_integral>>
+  (estimate-integral (lambda (x y) (<= (+ (* x x) (* y y)) 1))
+                     -1.0 1.0 -1.0 1.0
+                     100000)
+#+end_src
+
+#+RESULTS:
+: 3.14792
+
+*Exercise 3.6*. It is useful to be able to reset a random-number generator to produce a sequence starting from a given value. Design a new ~rand~ procedure that is called with an argument that is either the symbol ~generate~ or the symbol ~reset~ and behaves as follows: ~(rand 'generate)~ produces a new random number; ~((rand 'reset) <NEW-VALUE>)~ resets the internal state variable to the designated <NEW-VALUE>.  Thus, by resetting the state, one can generate repeatable sequences.  These are very handy to have when testing and debugging programs that use random numbers.
+
+#+begin_src scheme
+  (define rand
+    (let ((init-seed 1)
+          (n 1000000))
+      (let ((x (seed->random-state init-seed)))
+        (define (reset i)
+          (set! x (seed->random-state i)))
+        (define (generate)
+          (random n x))
+        (lambda (m)
+          (cond ((eq? m 'reset) reset)
+                ((eq? m 'generate) (generate)))))))
+#+end_src
+**** 3.1.3 The Costs of Introducing Assignment
+With "set!" we get objects with local state, but we lose the ability to interpret the language fully with the substitution model (Section 1-1-5). Additionally, no simple model with "nice" mathematical properties is adequate for dealing with objects and assignment in programming languages.
+
+*Exercise 3.7*. Consider the bank account objects created by ~make-account~, with the password modification described in *NoteExercise 3-3.  Suppose that our banking system requires the ability to make joint accounts.  Define a procedure ~make-joint~ that accomplishes this.  ~Make-joint~ should take three arguments. The first is a password-protected account.  The second argument must match the password with which the account was defined in order for the ~make-joint~ operation to proceed.  The third argument is a new password.  ~Make-joint~ is to create an additional access to the original account using the new password. For example, if ~peter-acc~ is a bank account with password ~open-sesame~, then
+
+#+begin_src scheme
+  (define paul-acc
+    (make-joint peter-acc 'open-sesame 'rosebud))
+#+end_src
+
+will allow one to make transactions on ~peter-acc~ using the name ~paul-acc~ and the password ~rosebud~.  You may wish to modify your solution to Exercise 3-3 to accommodate this new feature
+
+#+NAME: make_account_joint
+#+begin_src scheme
+  (define (make-account-pwd balance pwd)
+    (define (withdraw amount)
+      (and (or (>= balance amount)
+               (error "Insufficient funds!"))
+           (begin (set! balance (- balance amount))
+                  balance)))
+    (define (deposit amount)
+      (begin (set! balance (+ balance amount))
+             balance))
+    (define (dispatch-w-pwd dpwd)
+      (define (dispatch p m)
+        (cond ((not (eq? p dpwd)) (error "Incorrect password"))
+              ((eq? m 'withdraw) withdraw)
+              ((eq? m 'deposit) deposit)
+              ((eq? m 'join) dispatch-w-pwd)
+              (else (error "Unknown request -- MAKE ACCOUNT"))))
+      dispatch)
+    (dispatch-w-pwd pwd))
+
+  (define (make-joint acct acct-pwd new-pwd)
+    ((acct acct-pwd 'join) new-pwd))
+#+end_src
+
+#+begin_src scheme
+  <<make_account_joint>>
+  (define my-account (make-account-pwd 50 'blah))
+  ((my-account 'blah 'deposit) 17)
+  (define your-account (make-joint my-account 'blah 'blahblah))
+  ((your-account 'blahblah 'withdraw) 7)
+  ((my-account 'blah 'withdraw) 10)
+#+end_src
+
+*Exercise 3.8*. When we defined the evaluation model in section *Note 1-1-3, we said that the first step in evaluating an expression is to evaluate its subexpressions.  But we never specified the order in which the subexpressions should be evaluated (e.g., left to right or right to left).  When we introduce assignment, the order in which the arguments to a procedure are evaluated can make a difference to the result. Define a simple procedure ~f~ such that evaluating ~(+ (f 0) (f 1))~ will return 0 if the arguments to ~+~ are evaluated from left to right but will return 1 if the arguments are evaluated from right to left.
+
+#+NAME: ordered_expr
+#+begin_src scheme
+  (define f
+    (let ((x 0))
+      (lambda (n)
+        (let ((a x))
+          (set! x n)
+          a))))
+#+end_src
+
+#+begin_src scheme :results replace
+<<ordered_expr>>
+(list (f 0) (f 1))
+#+end_src
+
+#+RESULTS:
+: (0 0)
+
+#+begin_src scheme :results replace
+<<ordered_expr>>
+(list (f 1) (f 0))
+#+end_src
+
+#+RESULTS:
+: (0 1)
+*** 3.2 The Environment Model of Evaluation
+Once we admit assignment into the language, and have to dispense with the substitution model, we can't simply consider a variable a name for a value. Rather, it now designates a "place" where values can be stored. We'll call these places *environments*.
+
+An environment is a sequence of *frames*. Each frame is a table of *bindings*, which are associations of variable names to values. A frame also has a pointer to its enclosing environment. A frame can "shadow" another frame with respect to a variable if it takes on values of that variable in each frame.
+
+An environment thus determines the context in which an expression is evaluated. Expressions themselves only have meaning in the context of the environment they're evaluated in.
+
+**** 3.2.1 The Rules for Evaluation
+How an interpreter evaluates a combination remains the same.
+
+  * To evaluate a combination:
+
+1. Evaluate the subexpressions of the combination.(1)
+
+2. Apply the value of the operator subexpression to the values of the operand subexpressions.
+
+The environment model of procedure application adds what it means to apply a procedure to arguments.
+A *procedure* is:
+
+  * a pair consisting of code and a pointer to an environment
+
+  * it is created by evaluating a lambda expression, which produces a procedure whose code is taken from the text of the expression, and whose environment is the environment in which the lambda was evaluated.
+
+  * to apply a procedure:
+    - create a new environment that binds the parameters to the values of the arguments
+    - the enclosing environment of this environment is the one pointed to by the procedure.
+    - Within this environment, evaluate the procedure body.
+
+*Figure 3.2*. Environment structure produced by evaluating ~(define (square x) (* x x))~ in the global environment.
+
+#+begin_src ditaa :file pics/environment_structure.png :results value replace
+             +----------------------+
+             | other variables      |
+   global--->|                      |
+   env       | o square: |          |
+             +-----------+----------+
+                         |       ^
+  (define (square x)     |       |
+    (o x x))             V       |
+                     +---+---+   |
+                     | * | *-+---+
+                     +-|-+---+
+                       |
+                       V
+
+                     parameters     x
+                     body     (o x x)
+#+end_src
+
+#+RESULTS:
+[[file:pics/environment_structure.png]]
+
+*Figure 3.3*. Environment created by evaluating `(square 5)' in the global environment.
+
+#+begin_src ditaa :file pics/environment_evaluation.png :results value replace
+            +------------------------------------+
+            | other variables                    |
+  global -->|                                    |
+  env       | o square                           |
+            +-----------+---------------------+--+
+                        |       ^             ^
+  (square 5)            |       |             |
+                        V       |             |
+                    +---+---+   |         +---+--+
+                    |   |   +---+   E1 -->| x  5 |
+                    +---+---+             +------+
+                      |
+                      V
+                    parameters x
+                    body (o x x)
+#+end_src
+
+#+RESULTS:
+[[file:pics/environment_evaluation.png]]
+
+**** 3.2.2 Applying Simple Procedures
+*Exercise 3.9*. In section 1-2-1 we used the substitution model to analyze two procedures for computing factorials, a recursive version
+
+#+begin_src scheme
+  (define (factorial n)
+    (if (= n 1)
+        1
+        (* n (factorial (- n 1)))))
+#+end_src
+
+and an iterative version
+
+#+begin_src scheme
+  (define (factorial n)
+    (fact-iter 1 1 n))
+
+  (define (fact-iter product counter max-count)
+    (if (> counter max-count)
+        product
+        (fact-iter (* counter product)
+                   (+ counter 1)
+                   max-count)))
+#+end_src
+
+Show the environment structures created by evaluating `(factorial 6)' using each version of the `factorial' procedure.
+
+*recursive factorial*
+
+#+begin_src ditaa :file pics/recursive_factorial.png :results value replace
+            +-----------------------------+
+  global    |                             |
+  env   --->| factorial                   |
+            |                             |
+            +-----+-----------------------+
+                  |       ^
+                  V       |
+              +---+---+   |
+              |   |   +---+
+              +-+-+---+
+                |
+                V
+      parameters  n
+      body  (if (≝ n 1)
+                1
+                (× n (factorial (− n 1))
+
+            +-------------------------------------+
+  global -->|                                     |
+  env       +-------------------------------------+
+                ^            ^                  ^
+  (factorial 6) |            |                  |
+          +------+       +------+           +------+
+   E1  -->| n  6 |  E2 ->| n  5 | ...  E6 ->| n  1 |
+          |      |       |      |           |      |
+          +------+       +------+           +------+
+
+   (if (≝ n 1)   (× 6 (if (≝ n 1)  (× 6 (× 5 (... (if (≝ n 1)
+       1                       1                      1
+       (× n                    (× n                   (× n (factorial (− n 1))
+          (factorial (− n 1))   (factorial (− n 1))
+#+end_src
+
+#+RESULTS:
+[[file:pics/recursive_factorial.png]]
+
+#+begin_src ditaa :file pics/iterative_factorial.png :results value replace
+            +-----------------------------+
+  global    |                             |
+  env   --->| factorial                   |
+            |                             |
+            +-----+-----------------------+
+                  |       ^       |     ^
+                  V       |       V     |
+              +---+---+   |   +---+---+ |
+              |   |   +---+   |   |   +-+
+              +-+-+---+       +-+-+---+
+                |               |
+                V               +---->
+      parameters  n                    product, counter, max­count
+      body    (define (factorial n)    (define (fact­iter product counter max­count)
+                 (fact­iter 1 1 n))      (if (> counter max­count)
+                                             product
+                                             (fact­iter (* counter product)
+                                                        (+ counter 1)
+                                                        max­count)))
+
+            +-------------------------------------+
+  global -->|                                     |
+  env       +-------------------------------------+
+                ^            ^                  ^
+  (factorial 6) |            |                  |
+          +------+       +--------+         +----------+
+   E1  -->| n  6 |  E2 ->|prod  1 |... E7 ->|prod  720 |
+          |      |       |count 1 |         |count 6   |
+          +------+       |max­c 6 |         |max­c 6   |
+                         +--------+         +----------+
+   (fact­iter 1 1 n) (if (≤ max­count count)       (if (≤ max­count count)
+                         prod                          prod
+                         (fact­iter (× count prod)     (fact­iter (× count prod)
+                                    (+ count 1)        (+ count 1)
+                                    max­count)))       max­count)))
+#+end_src
+
+#+RESULTS:
+[[file:pics/iterative_factorial.png]]
+
+**** 3.2.3 Frames as the Repository of Local State
+
+*Exercise 3.10*. In the ~make-withdraw~ procedure, the local variable ~balance~ is created as a parameter of ~make-withdraw~. We could also create the local state variable explicitly, using ~let~, as follows:
+
+#+begin_src scheme
+  (define (make-withdraw initial-amount)
+    (let ((balance initial-amount))
+      (lambda (amount)
+        (if (>= balance amount)
+            (begin (set! balance (- balance amount))
+                   balance)
+            "Insufficient funds"))))
+#+end_src
+
+Recall from section 1-3-2 that ~let~ is simply syntactic sugar for a procedure call:
+
+#+begin_src scheme
+  (let ((<VAR> <EXP>)) <BODY>)
+#+end_src
+
+is interpreted as an alternate syntax for
+
+#+begin_src scheme
+  ((lambda (<VAR>) <BODY>) <EXP>)
+#+end_src
+
+Use the environment model to analyze this alternate version of ~make-withdraw~, drawing figures like the ones above to illustrate the interactions
+
+#+begin_src scheme
+  (define W1 (make-withdraw 100))
+
+  (W1 50)
+
+  (define W2 (make-withdraw 100))
+#+end_src
+
+Show that the two versions of ~make-withdraw~ create objects with the same behavior.  How do the environment structures differ for the two versions?
+
+There is an additional environment containing ~init-amount~ that encloses each new ~balance~ environment.
+
+#+begin_src ditaa :file pics/make-withdraw-1.png :results value replace
+            +-----------------+
+  global    |                 |
+  env   --->| make­withdrawal |
+            |                 |
+            +-----+-----------+
+                  |       ^
+                  V       |
+              +---+---+   |
+              |   |   +---+
+              +-+-+---+
+                |
+                V
+      init­amnt
+      (let ((balance init­amnt))
+         (lambda (amount)
+          ...))
+#+end_src
+
+#+RESULTS:
+[[file:pics/make-withdraw-1.png]]
+
+This is after ~make-withdrawal~ is called in ~define~ but before ~W1~ is created.
+
+#+begin_src ditaa :file pics/make-withdraw-2.png :results value replace
+            +----------------------+
+  global    |                      |
+  env   --->| make­withdrawal      |
+            |                      |<--------------+
+            +-----+------------+---+               |
+                  |       ^    |                   |
+                  V       |    |             E1 +--+---------+
+              +---+---+   |    +--->+---+---+   |init­amnt   |
+              |   |   +---+         |   |   +-->| 100        |
+              +-+-+---+             +-+-+---+   +------------+
+                |                     |
+                V                     V
+      init­amnt                    balance
+      (let ((balance init­amnt))   (lambda (balance)
+         (lambda (amount)            (lambda (amount)
+          ...))                        ...))
+#+end_src
+
+#+RESULTS:
+[[file:pics/make-withdraw-2.png]]
+
+After W1 is created (I believe E2 was enclosed by E1 so that remains (the other temporary lambda function has terminated and has nothing pointing to it so it can go away)).
+
+#+begin_src ditaa :file pics/make-withdraw-3.png :results value replace
+            +----------------------+      +-----------+
+  global    |                      |   E1 |init­amnt  |
+  env   --->| make­withdrawal      |<-----+100        |
+            |                  W1  |      +-----------+
+            +-----+------------+---+               ^
+                  |       ^    |                   |
+                  V       |    |             E2 +--+---------+
+              +---+---+   |    +--->+---+---+   |balance     |
+              |   |   +---+         |   |   +-->| 100        |
+              +-+-+---+             +-+-+---+   +------------+
+                |                     |
+                V                     V
+      init­amnt                    amount
+      (let ((balance init­amnt))   (lambda (amount)
+         (lambda (amount)            ...))
+          ...))
+#+end_src
+
+When ~(W1 50) is called.
+
+#+RESULTS:
+[[file:pics/make-withdraw-3.png]]
+
+#+begin_src ditaa :file pics/make-withdraw-4.png :results value replace
+            +----------------------+      +-----------+
+  global    |                      |   E1 |init­amnt  |
+  env   --->| make­withdrawal      |<-----+100        |
+            |                  W1  |      +-----------+
+            +-----+------------+---+               ^
+                  |       ^    |                   |
+                  V       |    |             E2 +--+---------+
+              +---+---+   |    +--->+---+---+   |balance     |
+              |   |   +---+         |   |   +-->| 100        |
+              +-+-+---+             +-+-+---+   +------------+
+                |                     |                  ^
+                V                     V           E3 +---+------+
+      init­amnt                    amount            |amount    |
+      (let ((balance init­amnt))   (lambda (amount)  |  50      |
+         (lambda (amount)            ...))           +----------+
+          ...))                                        ^
+                                              +----+---++
+                                              |    |    |
+                                              +----+----+
+  -                                           amount
+                                              (if (≥ balance amount)
+                                                  (begin (set! balance...
+                                                    )))
+#+end_src
+
+#+RESULTS:
+[[file:pics/make-withdraw-4.png]]
+
+After ~(W1 50)~ is called.
+
+#+begin_src ditaa :file pics/make-withdraw-5.png :results value replace
+            +----------------------+      +-----------+
+  global    |                      |   E1 |init­amnt  |
+  env   --->| make­withdrawal      |<-----+100        |
+            |                  W1  |      +-----------+
+            +-----+------------+---+               ^
+                  |       ^    |                   |
+                  V       |    |             E2 +--+---------+
+              +---+---+   |    +--->+---+---+   |balance     |
+              |   |   +---+         |   |   +-->| 50         |
+              +-+-+---+             +-+-+---+   +------------+
+                |                     |
+                V                     V
+      init­amnt                    amount
+      (let ((balance init­amnt))   (lambda (amount)
+         (lambda (amount)            ...))
+          ...))
+#+end_src
+
+After W2 is called. (two init-amounts?, two balances).
+
+#+begin_src ditaa :file pics/make-withdraw-6.png :results value replace
+            +----------------------+      +-----------+
+  global    |                      |   E1 |init­amnt  |
+  env   --->| make­withdrawal      |<-----+100        |
+            |               W2 W1  |      +-----------+
+            +-----+----------+-+---+<--------------^--------------+
+                  |       ^  | |                   |              |
+                  V       |  | |             E2 +--+---------+    |
+              +---+---+   |  | +--->+---+---+   |balance     |    |
+              |   |   +---+  |      |   |   +-->| 50         |    |
+              +-+-+---+      |      +-+-+---+   +------------+    |
+                |            |        |                  +--------+--+
+                V            +---+    V               E4 |init­amnt  |
+      init­amnt                  | amount                |100        |
+      (let ((balance init­amnt)) | (lambda (amount)      +-----------+
+         (lambda (amount)        |   ...))                        ^
+          ...))                  |                                |
+                                 |                 E5 +--+---------+
+                                 |        +---+---+   |balance     |
+                                 +------->|   |   +-->|100         |
+                                          +-+-+---+   +------------+
+                                            |
+                                            V
+                                        amount
+                                        (lambda (amount)
+                                            ...))
+#+end_src
+
+#+RESULTS:
+[[file:pics/make-withdraw-6.png]]
+
+**** 3.2.4 Internal Definitions
+*Exercise 3.11*. In section 3-2-3 we saw how the environment model described the behavior of procedures with local state.  Now we have seen how internal definitions work.  A typical message-passing procedure contains both of these aspects. Consider the bank account procedure of section 3-1-1.
+
+#+begin_src scheme
+  (define (make-account balance)
+    (define (withdraw amount)
+      (if (>= balance amount)
+          (begin (set! balance (- balance amount))
+                 balance)
+          "Insufficient funds"))
+    (define (deposit amount)
+      (set! balance (+ balance amount))
+      balance)
+    (define (dispatch m)
+      (cond ((eq? m 'withdraw) withdraw)
+            ((eq? m 'deposit) deposit)
+            (else (error "Unknown request -- MAKE-ACCOUNT"
+                         m))))
+    dispatch)
+#+end_src
+
+Show the environment structure generated by the sequence of interactions
+
+#+begin_src scheme
+  (define acc (make-account 50))
+
+  ((acc 'deposit) 40)
+  90
+
+  ((acc 'withdraw) 60)
+  30
+#+end_src
+
+Where is the local state for ~acc~ kept?
+
+Together with the defs of withdraw, deposit and balance, see ~E1~ below.
+
+Suppose we define another account
+
+#+begin_src scheme
+  (define acc2 (make-account 100))
+#+end_src
+
+How are the local states for the two accounts kept distinct? Which parts of the environment structure are shared between ~acc~ and ~acc2~?
+
+A new environment is created to store local states for acc2, with a separate balance, withdraw, deposit and dispatch.
+
+#+begin_src ditaa :file pics/make_account.png :results value replace
+            +----------------------------------------+
+  global -->|                                    acc +------------+
+  env       |         make-account                   |            |
+            +----------------------------------------+            |
+                             ^                    ^               |
+                  +---+---+  |                    |               |
+       +----------+   |   +--+         +----------+------------+  |
+       |          +---+---+            | balance 50 -> 90 -> 30|  |
+       V                         E1 -->| withdraw: ...         |  |
+  parameters: balance                  | deposit: ...          |  |
+  body: (define withdraw ...)          | dispatch: ... -+      |  |
+        (define deposit ...)           +----------------|------+  |
+        (define dispatch ...)           ^  ^   ^        |     ^   |
+        dispatch                        |  |   |        V     |   |
+                              +---------++ |   |    +---+---+ |   |
+                        E2 -->| 'deposit | |   |    |   |   +-+   |
+                              +----------+ |   |    +-+-+---+<----+
+                        call to dispatch   |   |      |
+                                           |   |      V dispatch
+                                 +---------++  |  parameters: m
+                           E3 -->| amount 40|  -+ body: (cond ((eq? m 'withdraw) withdraw)
+                                 +----------+   |         ...)
+                           call to deposit     ++---------+
+                                               | amount 60|
+                                            E4 +----------+
+                                               call to withdraw
+#+end_src
+
+#+RESULTS:
+[[file:pics/make_account.png]]
+
+*** 3.3 Modeling with Mutable Data
+In order to model compound objects with changing state, we will
+design data abstractions to include, in addition to selectors and
+constructors, operations called "mutators", which modify data objects.
+
+We begin this section by defining basic
+mutators for pairs, so that pairs can serve as building blocks for
+constructing mutable data objects.
+
+**** 3.3.1 Mutable List Structure
+We add to ~cons~, ~car~ and ~cdr~ the ability to set the ~car~ and ~cdr~ of a list, ~set-car!~ and ~set-cdr!~. These are different than ~cons~ing something, they do not create a new pair. We could therefore define ~cons~ in terms of these, along with an operation ~get-new-pair~.
+
+*Exercise 3.12*. The following procedure for appending lists was introduced in section 2-2-1
+
+#+begin_src scheme
+  (define (append x y)
+    (if (null? x)
+        y
+        (cons (car x) (append (cdr x) y))))
+#+end_src
+
+~Append~ forms a new list by successively ~cons~ing the elements of ~x~ onto ~y~.  The procedure ~append!~ is similar to ~append~, but it is a mutator rather than a constructor.  It appends the lists by splicing them together, modifying the final pair of ~x~ so that its ~cdr~ is now ~y~.  (It is an error to call ~append!~ with an empty ~x~.)
+
+#+begin_src scheme
+  (define (append! x y)
+    (set-cdr! (last-pair x) y)
+    x)
+#+end_src
+
+Here ~last-pair~ is a procedure that returns the last pair in its argument:
+
+#+begin_src scheme
+  (define (last-pair x)
+    (if (null? (cdr x))
+        x
+        (last-pair (cdr x))))
+#+end_src
+
+Consider the interaction
+
+#+begin_src scheme
+  (define x (list 'a 'b))
+
+  (define y (list 'c 'd))
+
+  (define z (append x y))
+
+  z
+  (a b c d)
+
+  (cdr x)
+  <RESPONSE>
+
+  (define w (append! x y))
+
+  w
+  (a b c d)
+
+  (cdr x)
+  <RESPONSE>
+#+end_src
+
+What are the missing <RESPONSE>s?  Draw box-and-pointer diagrams to explain your answer.
+
+1. ~(b)~, since x is not affected by ~append~.
+2. ~(b c d), since ~append!~ modifies the last pair of x to point to y.
+
+*Exercise 3.13*. Consider the following ~make-cycle~ procedure, which uses the ~last-pair~ procedure defined in *Note Exercise 3-12
+
+#+NAME: make_cycle
+#+begin_src scheme
+  (define (make-cycle x)
+    (set-cdr! (last-pair x) x)
+    x)
+#+end_src
+
+Draw a box-and-pointer diagram that shows the structure ~z~ created by
+
+#+begin_src scheme
+  (define z (make-cycle (list 'a 'b 'c)))
+#+end_src
+
+What happens if we try to compute ~(last-pair z)~?
+
+We may get an error when it prints the result if it does not know how to handle it, however it shouldn't necessarily get an error with the computation. (actually not in Guile, we get ~(a b c . #-2#)~)
+
+*Exercise 3.14*. The following procedure is quite useful, although obscure:
+
+#+NAME: mystery
+#+begin_src scheme
+  (define (mystery x)
+    (define (loop x y)
+      (if (null? x)
+          y
+          (let ((temp (cdr x)))
+            (set-cdr! x y)
+            (loop temp x))))
+    (loop x '()))
+#+end_src
+
+~Loop~ uses the "temporary" variable ~temp~ to hold the old value of the ~cdr~ of ~x~, since the ~set-cdr!~  on the next line destroys the ~cdr~.  Explain what ~mystery~ does in general. Suppose ~v~ is defined by ~(define v (list 'a 'b 'c 'd))~. Draw the box-and-pointer diagram that represents the list to which ~v~ is bound.  Suppose that we now evaluate ~(define w (mystery v))~. Draw box-and-pointer diagrams that show the structures ~v~ and ~w~ after evaluating this expression.  What would be printed as the values of ~v~ and ~w~?
+
+~v~ should be ~(a)~ at the end, as ~mystery~ changes the ~cdr~ of each element, in particular it changes ~(a b c d) 's cdr to #nil.
+
+The return value is ~loop~ called on successive ~cdr~'s, which has the effect of setting the ~cdr~ of the current element to the previous pair, which effectively reverses the list.
+
+#+begin_src scheme :results replace
+<<mystery>>
+(define v (list 'a 'b 'c 'd))
+(define w (mystery v))
+(list v w)
+#+end_src
+
+#+RESULTS:
+: ((a) (d c b a))
+
+***** Sharing and identity
+Note the difference between ~z1~ and ~z2~. Even though they have the same structure, they are distinct, ~z1~'s ~cdr~ is the same as its ~car~, though they are distinct in ~z2~:
+
+#+NAME: sharing
+#+begin_src scheme
+  (define x (list 'a 'b))
+  (define z1 (cons x x))
+  (define z2 (cons (list 'a 'b) (list 'a 'b)))
+#+end_src
+
+One way to detect sharing is using ~eq?~
+
+#+begin_src scheme :results replace
+<<sharing>>
+(eq? z1 z2)
+#+end_src
+
+#+RESULTS:
+: #f
+
+*Exercise 3.15*. Draw box-and-pointer diagrams to explain the effect of ~set-to-wow!~ on the structures ~z1~ and ~z2~ above.
+
+#+NAME: set_to_wow!
+#+begin_src scheme
+  (define (set-to-wow! x)
+    (set-car! (car x) 'wow)
+    x)
+#+end_src
+
+Since x is the car and cdr of ~z1~, changing it to ~wow~ changes both pairs, since they are the same thing. That is not true with ~z2~.
+
+*Exercise 3.16*. Ben Bitdiddle decides to write a procedure to count the number of pairs in any list structure.  "It's easy," he reasons.  "The number of pairs in any structure is the number in the ~car~ plus the number in the ~cdr~ plus one more to count the current pair."  So Ben writes the following procedure:
+
+#+NAME: count_pairs
+#+begin_src scheme
+  (define (count-pairs x)
+    (if (not (pair? x))
+        0
+        (+ (count-pairs (car x))
+           (count-pairs (cdr x))
+           1)))
+#+end_src
+
+Show that this procedure is not correct.  In particular, draw box-and-pointer diagrams representing list structures made up of exactly three pairs for which Ben's procedure would return 3; return 4; return 7; never return at all.
+
+*never return* (stack overflow)
+
+#+begin_src scheme
+<<count_pairs>>
+(define p1 (cons 'c #nil))
+(define p2 (cons 'b p1))
+(define p3 (cons 'a p2))
+(set-cdr! p1 p3)
+(count-pairs p3)
+#+end_src
+
+*7*
+#+begin_src scheme :results replace
+<<count_pairs>>
+(define p1 (cons 'a #nil))
+(define p2 (cons p1 p1))
+(define p3 (cons p2 p2))
+(count-pairs p3)
+#+end_src
+
+#+RESULTS:
+: 7
+
+#+begin_src scheme :results replace
+<<count_pairs>>
+(define p1 (cons 'a #nil))
+(define p2 (cons p1 p1))
+(define p3 (cons 'a p2))
+(count-pairs p3)
+#+end_src
+
+#+RESULTS:
+: 4
+
+#+begin_src scheme :results replace
+<<count_pairs>>
+(define p1 (cons 'c #nil))
+(define p2 (cons 'b p1))
+(define p3 (cons 'a p2))
+(count-pairs p3)
+#+end_src
+
+#+RESULTS:
+: 3
+
+*Exercise 3.17*. Devise a correct version of the ~count-pairs~ procedure of Exercise 3-16 that returns the number of distinct pairs in any structure.  (Hint: Traverse the structure, maintaining an auxiliary data structure that is used to keep track of which pairs have already been counted.)
+
+#+begin_src scheme
+  (define (count-pairs-mem x)
+    (let ((cache '()))
+      (define (cp-cache y)
+        (cond ((not (pair? y)) 0)
+              ((memq y cache) 0)
+              (else
+               (begin (set! cache (cons y cache))
+                      (+ (cp-cache (car y))
+                         (cp-cache (cdr y))
+                         1)))))
+      (cp-cache x)))
+#+end_src
+
+*Exercise 3.18*. Write a procedure that examines a list and determines whether it contains a cycle, that is, whether a program that tried to find the end of the list by taking successive ~cdr~s would go into an infinite loop. Exercise 3-13 constructed such lists.
+
+#+NAME: cycle
+#+begin_src scheme
+  (define (cycle? l)
+    (let ((cache '()))
+      (define (cycle-cache? l-x)
+        (cond ((null? l-x) #f)
+              ((memq (car l-x) cache) #t)
+              (else
+               (begin (set! cache (cons (car l-x) cache))
+                      (cycle-cache? (cdr l-x))))))
+      (cycle-cache? l)))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<make_cycle>>
+  <<cycle>>
+  `(,(cycle? (make-cycle (list 'a 'b 'c)))
+    ,(cycle? (list 'a 'b 'c)))
+#+end_src
+
+#+RESULTS:
+: (#t #f)
+
+*Exercise 3.19*. Redo Exercise 3-18 using an algorithm that takes only a constant amount of space. (This requires a very clever idea.)
+
+#+begin_src scheme
+  (define (cycle-constant? l)
+    (let ((first l))
+      (define (repeated-first? x-l)
+        (cond ((null? x-l) #f)
+              ((eq? first x-l) #t)
+              (else (repeated-first? (cdr x-l)))))
+      (repeated-first? (cdr l))))
+#+end_src
+
+(note, this won't work if the first element isn't n the cycle (i.e. the cycle starts later in the list))
+
+***** Mutation is just assignment
+Just like we could define pairs as procedures, we can do it with mutable data as well.
+
+#+begin_src scheme
+  (define (cons x y)
+    (define (set-x! v) (set! x v))
+    (define (set-y! v) (set! y v))
+    (define (dispatch m)
+      (cond ((eq? m 'car) x)
+            ((eq? m 'cdr) y)
+            ((eq? m 'set-car!) set-x!)
+            ((eq? m 'set-cdr!) set-y!)
+            (else (error "Undefined operation -- CONS" m))))
+    dispatch)
+
+  (define (car z) (z 'car))
+
+  (define (cdr z) (z 'cdr))
+
+  (define (set-car! z new-value)
+    ((z 'set-car!) new-value)
+    z)
+
+  (define (set-cdr! z new-value)
+    ((z 'set-cdr!) new-value)
+    z)
+#+end_src
+
+*Exercise 3.20*. Draw environment diagrams to illustrate the evaluation of the sequence of expressions
+
+#+begin_src scheme
+  (define x (cons 1 2))
+  (define z (cons x x))
+  (set-car! (cdr z) 17)
+
+  (car x)
+  17
+#+end_src
+
+using the procedural implementation of pairs given above.  (Compare Exercise 3-11)
+
+TODO
+
+**** 3.3.2 Representing Queues
+A "queue" is a sequence that allows insertion at the end and deletion from the front, typically each in \(\Theta{1}\) time. Also called a FIFO buffer.
+
+At an abstract level, it is anything represented by the following set of operations:
+  * constructor: ~make-queue~, which returns an empty queue
+  * two selectors: ~empty-queue?~: tests of queue is empty, and ~front-queue~ returns the object at the front
+  * two mutators: ~insert-queue!~, inserts at the rear, and ~delete-queue!~, removes from the front.
+
+An implementation using Scheme pairs might look like this:
+
+#+begin_src ditaa :file pics/queue.png :results value replace
+                 +---+---+
+            q -->|   |   +-------------------+
+                 +---+---+                   |
+                   |                         |
+                   | front-ptr               | rear-ptr
+                   V                         V
+               +---+---+    +---+---+    +---+---+
+               |   |   +--->|   |   +--->|   | / |
+               +-+-+---+    +-+-+---+    +-+-+---+
+                 |            |            |
+                 V            V            V
+               +---+        +---+        +---+
+               | a |        | b |        | c |
+               +---+        +---+        +---+
+#+end_src
+
+#+RESULTS:
+[[file:pics/queue.png]]
+
+#+NAME: queue
+#+begin_src scheme
+  (define (front-ptr queue) (car queue))
+  (define (rear-ptr queue) (cdr queue))
+  (define (set-front-ptr! queue item) (set-car! queue item))
+  (define (set-rear-ptr! queue item) (set-cdr! queue item))
+  (define (empty-queue? queue) (null? (front-ptr queue)))
+  (define (make-queue) (cons '() '()))
+
+  (define (front-queue queue)
+    (if (empty-queue? queue)
+        (error "FRONT called with an empty queue" queue)
+        (car (front-ptr queue))))
+
+  (define (insert-queue! queue item)
+    (let ((new-pair (cons item '())))
+      (if (empty-queue? queue)
+          (set-front-ptr! queue new-pair)
+          (set-cdr! (rear-ptr queue) new-pair))
+      (set-rear-ptr! queue new-pair))
+    queue)
+
+  (define (delete-queue! queue)
+    (if (empty-queue? queue)
+        (error "DELETE! called with an empty queue" queue)
+        (set-front-ptr! queue (cdr (front-ptr queue))))
+    queue)
+#+end_src
+
+*Exercise 3.21*. Ben Bitdiddle decides to test the queue implementation described above.  He types in the procedures to the Lisp interpreter and proceeds to try them out:
+
+#+begin_src scheme
+  (define q1 (make-queue))
+
+  (insert-queue! q1 'a)
+  ((a) a)
+
+  (insert-queue! q1 'b)
+  ((a b) b)
+
+  (delete-queue! q1)
+  ((b) b)
+
+  (delete-queue! q1)
+  (() b)
+#+end_src
+
+"It's all wrong!" he complains.  "The interpreter's response shows that the last item is inserted into the queue twice.  And when I delete both items, the second ~b~ is still there, so the queue isn't empty, even though it's supposed to be."  Eva Lu Ator suggests that Ben has misunderstood what is happening.  "It's not that the items are going into the queue twice," she explains. "It's just that the standard Lisp printer doesn't know how to make sense of the queue representation.  If you want to see the queue printed correctly, you'll have to define your own print procedure for queues." Explain what Eva Lu is talking about.  In particular, show why Ben's examples produce the printed results that they do. Define a procedure ~print-queue~ that takes a queue as input and prints the sequence of items in the queue.
+
+With our implementation, items are deleted from the queue by simply setting the front pointer to the next item in the list. This means the rear pointer is never changed, which is why you still see ~b~ after each ~delete-queue~, that doesn't mean it's still in the queue, because ~empty-queue?~ returns true now, and adding a new element to the queue will result in the rear-ptr being changed to that.
+
+What Lisp is showing is the underlying representation of our queue, in list form.
+
+#+NAME: print_queue
+#+begin_src scheme
+  (define (print-queue queue)
+    (display (front-ptr queue)))
+#+end_src
+
+#+begin_src scheme :results replace output
+<<queue>>
+<<print_queue>>
+(define q1 (make-queue))
+(insert-queue! q1 'a)
+(insert-queue! q1 'b)
+
+(print-queue q1)
+#+end_src
+
+#+RESULTS:
+: "(a b)"
+
+*Exercise 3.22*. Instead of representing a queue as a pair of pointers, we can build a queue as a procedure with local state. The local state will consist of pointers to the beginning and the end of an ordinary list.  Thus, the ~make-queue~ procedure will have the form
+
+#+begin_src scheme
+  (define (make-queue)
+    (let ((front-ptr ... )
+          (rear-ptr ... ))
+      <DEFINITIONS OF INTERNAL PROCEDURES>
+      (define (dispatch m) ...)
+      dispatch))
+#+end_src
+
+Complete the definition of ~make-queue~ and provide implementations of the queue operations using this representation.
+
+#+NAME: queue_local_state
+#+begin_src scheme
+  (define (make-queue)
+    (let ((front-ptr '())
+          (rear-ptr '()))
+      (define (empty?) (null? front-ptr))
+      (define (front)
+        (if (empty?)
+            (error "FRONT called with an empty queue" dispatch)
+            (car front-ptr)))
+      (define (insert! item)
+        (let ((new-pair (cons item '())))
+          (if (empty?)
+              (set! front-ptr new-pair)
+              (set-cdr! rear-ptr new-pair))
+        (set! rear-ptr new-pair))
+        dispatch)
+      (define (delete!)
+        (if (empty?)
+            (error "DELETE! called with an empty queue" dispatch)
+            (set! front-ptr (cdr front-ptr)))
+        dispatch)
+      (define (dispatch m)
+        (cond ((eq? m 'empty?) (empty?))
+              ((eq? m 'front) (front))
+              ((eq? m 'insert!) insert!)
+              ((eq? m 'delete!) (delete!))
+              (else (error "MAKE-QUEUE! dispatch called on wrong arg" dispatch))))
+      dispatch))
+
+  (define (empty-queue? queue) (queue 'empty?))
+  (define (front-queue queue) (queue 'front))
+  (define (insert-queue! queue item) ((queue 'insert!) item))
+  (define (delete-queue! queue) (queue 'delete!))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<queue_local_state>>
+  (define q1 (make-queue))
+  (insert-queue! q1 'a)
+  (insert-queue! q1 'b)
+  (delete-queue! q1)
+  (front-queue q1)
+#+end_src
+
+#+RESULTS:
+: b
+
+*Exercise 3.23*. A "deque" ("double-ended queue") is a sequence in which items can be inserted and deleted at either the front or the rear.  Operations on deques are the constructor ~make-deque~, the predicate ~empty-deque?~, selectors ~front-deque~ and ~rear-deque~, and mutators ~front-insert-deque!~, ~rear-insert-deque!~, ~front-delete-deque!~, and ~rear-delete-deque!~.  Show how to represent deques using pairs, and give implementations of the operations.(2)  All operations should be accomplished in [theta](1) steps.
+
+#+NAME: dequeue
+#+begin_src scheme
+  (define (front-ptr dequeue) (car dequeue))
+  (define (rear-ptr dequeue) (cdr dequeue))
+  (define (set-front-ptr! dequeue item) (set-car! dequeue item))
+  (define (set-rear-ptr! dequeue item) (set-cdr! dequeue item))
+  (define (remove-tail dequeue)
+    (define (remtail l)
+      (if (null? (cddr l))
+          (begin (set-cdr! l '())
+                 l)
+          (remtail (cdr l))))
+    (let ((fr-ptr (front-ptr dequeue)))
+      (if (null? (cdr fr-ptr))
+          '()
+          (remtail fr-ptr))))
+
+  (define (empty-dequeue? dequeue) (null? (front-ptr dequeue)))
+  (define (make-dequeue) (cons '() '()))
+
+  (define (front-dequeue dequeue)
+    (if (empty-dequeue? dequeue)
+        (error "FRONT called with an empty dequeue" dequeue)
+        (car (front-ptr dequeue))))
+
+  (define (rear-dequeue dequeue)
+    (if (empty-dequeue? dequeue)
+        (error "FRONT called with an empty dequeue" dequeue)
+        (rear-ptr dequeue)))
+
+  (define (front-insert-dequeue! dequeue item)
+    (let ((new-pair (cons item '())))
+      (if (empty-dequeue? dequeue)
+          (set-rear-ptr! dequeue new-pair)
+          (set-cdr! new-pair (front-ptr dequeue)))
+      (set-front-ptr! dequeue new-pair))
+    dequeue)
+
+  (define (rear-insert-dequeue! dequeue item)
+    (let ((new-pair (cons item '())))
+      (if (empty-dequeue? dequeue)
+          (set-front-ptr! dequeue new-pair)
+          (set-cdr! (rear-ptr dequeue) new-pair))
+      (set-rear-ptr! dequeue new-pair))
+    dequeue)
+
+  (define (front-delete-dequeue! dequeue)
+    (if (empty-dequeue? dequeue)
+        (error "DELETE! called with an empty dequeue" dequeue)
+        (set-front-ptr! dequeue (cdr (front-ptr dequeue))))
+    dequeue)
+
+  (define (rear-delete-dequeue! dequeue)
+    (if (empty-dequeue? dequeue)
+        (error "DELETE! called with an empty dequeue" dequeue)
+        (let ((new-rear (remove-tail dequeue)))
+          (set-rear-ptr! dequeue new-rear)))
+    dequeue)
+#+end_src
+
+#+begin_src scheme :results replace
+  <<dequeue>>
+  (define d1 (make-dequeue))
+  (front-insert-dequeue! d1 'a)
+  (front-insert-dequeue! d1 'b)
+  (rear-insert-dequeue! d1 'c)
+  (rear-delete-dequeue! d1)
+  (front-delete-dequeue! d1)
+  d1
+#+end_src
+
+#+RESULTS:
+: ((a) a)
+
+**** 3.3.3 Representing Tables
+Tables store values under one or more keys.
+
+#+NAME: table_1d
+#+begin_src scheme
+  (define (lookup key table)
+    (let ((record (assoc key (cdr table))))
+      (if record
+          (cdr record)
+          #f)))
+
+  (define (assoc key records)
+    (cond ((null? records) #f)
+          ((equal? key (caar records)) (car records))
+          (else (assoc key (cdr records)))))
+
+  (define (insert! key value table)
+    (let ((record (assoc key (cdr table))))
+      (if record
+          (set-cdr! record value)
+          (set-cdr! table
+                    (cons (cons key value) (cdr table)))))
+    'ok)
+
+  (define (make-table)
+    (list '*table*))
+#+end_src
+
+***** Two-dimensional tables
+
+#+NAME: table_2d
+#+begin_src scheme
+  (define (assoc key records)
+    (cond ((null? records) #f)
+          ((equal? key (caar records)) (car records))
+          (else (assoc key (cdr records)))))
+
+  (define (lookup key-1 key-2 table)
+    (let ((subtable (assoc key-1 (cdr table))))
+      (if subtable
+          (let ((record (assoc key-2 (cdr subtable))))
+            (if record
+                (cdr record)
+                #f))
+          #f)))
+
+  (define (insert! key-1 key-2 value table)
+    (let ((subtable (assoc key-1 (cdr table))))
+      (if subtable
+          (let ((record (assoc key-2 (cdr subtable))))
+            (if record
+                (set-cdr! record value)
+                (set-cdr! subtable
+                          (cons (cons key-2 value)
+                                (cdr subtable)))))
+          (set-cdr! table
+                    (cons (list key-1
+                                (cons key-2 value))
+                          (cdr table)))))
+    'ok)
+
+  (define (make-table)
+    (let ((local-table (list '*table*)))
+      (define (lookup key-1 key-2)
+        (let ((subtable (assoc key-1 (cdr local-table))))
+          (if subtable
+              (let ((record (assoc key-2 (cdr subtable))))
+                (if record
+                    (cdr record)
+                    #f))
+              #f)))
+      (define (insert! key-1 key-2 value)
+        (let ((subtable (assoc key-1 (cdr local-table))))
+          (if subtable
+              (let ((record (assoc key-2 (cdr subtable))))
+                (if record
+                    (set-cdr! record value)
+                    (set-cdr! subtable
+                              (cons (cons key-2 value)
+                                    (cdr subtable)))))
+              (set-cdr! local-table
+                        (cons (list key-1
+                                    (cons key-2 value))
+                              (cdr local-table)))))
+        'ok)
+      (define (dispatch m)
+        (cond ((eq? m 'lookup-proc) lookup)
+              ((eq? m 'insert-proc!) insert!)
+              (else (error "Unknown operation -- TABLE" m))))
+      dispatch))
+#+end_src
+
+#+NAME: get_put_table
+#+begin_src scheme
+  (define operation-table (make-table))
+  (define get (operation-table 'lookup-proc))
+  (define put (operation-table 'insert-proc!))
+#+end_src
+
+*Exercise 3.24*. In the table implementations above, the keys are tested for equality using ~equal?~ (called by ~assoc~).  This is not always the appropriate test.  For instance, we might have a table with numeric keys in which we don't need an exact match to the number we're looking up, but only a number within some tolerance of it.  Design a table constructor ~make-table~ that takes as an argument a ~same-key?~ procedure that will be used to test "equality" of keys.  ~Make-table~ should return a ~dispatch~ procedure that can be used to access appropriate ~lookup~ and ~insert!~ procedures for a local table.
+
+#+NAME: table_2d_inexact
+#+begin_src scheme
+  (define (make-table same-key-f?)
+    (let ((local-table (list '*table*)))
+      (define (assoc-f key records)
+        (cond ((null? records) #f)
+              ((same-key-f? key (caar records)) (car records))
+              (else (assoc-f key (cdr records)))))
+      (define (lookup key-1 key-2)
+        (let ((subtable (assoc-f key-1 (cdr local-table))))
+          (and subtable
+               (let ((record (assoc-f key-2 (cdr subtable))))
+                 (and record (cdr record))))))
+      (define (insert! key-1 key-2 value)
+        (let ((subtable (assoc-f key-1 (cdr local-table))))
+          (if subtable
+              (let ((record (assoc-f key-2 (cdr subtable))))
+                (if record
+                    (set-cdr! record value)
+                    (set-cdr! subtable
+                              (cons (cons key-2 value)
+                                    (cdr subtable)))))
+              (set-cdr! local-table
+                        (cons (list key-1
+                                    (cons key-2 value))
+                              (cdr local-table))))))
+      (define (dispatch m)
+        (cond ((eq? m 'lookup-proc) lookup)
+              ((eq? m 'insert-proc!) insert!)
+              (else (error "Unknown operation -- TABLE" m))))
+      dispatch))
+#+end_src
+
+#+begin_src scheme
+  <<table_2d_inexact>>
+  (define (inexact-comp thresh-factor)
+    (lambda (x y)
+      (if (and (number? x) (number? y))
+        (< (/ (abs (- x y)) (+ (abs x) (abs y))) thresh-factor)
+        (eq? x y))))
+
+  (define inexact-table (make-table (inexact-comp 0.0001)))
+  (define get-inexact (inexact-table 'lookup-proc))
+  (define put-inexact (inexact-table 'insert-proc!))
+
+  (put-inexact 1 'a 'first-obj)
+  (put-inexact 1.0 'b 'second-obj)
+  (put-inexact 1.00000001 'c 'third-obj)
+  `(,(get-inexact 1 'b)
+    ,(get-inexact 1.0 'a)
+    ,(get-inexact 1.001 'c)
+    ,(get-inexact 1.0001 'c))
+#+end_src
+
+*Exercise 3.25*. Generalizing one- and two-dimensional tables, show how to implement a table in which values are stored under an arbitrary number of keys and different values may be stored under different numbers of keys. The ~lookup~ and ~insert!~ procedures should take as input a list of keys used to access the table.
+
+#+begin_src ditaa :file pics/multi-table.png :results replace output
+
+  table
+    |
+    V
+  +---+---+   +---+---+   +---+---+   +-+-+-+-+   +---+---+   +-------+
+  |   |   +-->|   |   +-->|   |   |-->|   |   |-->|   |   |   | words |
+  +-+-+---+   +-+-+---+   +-+-+---+   +-+-+---+   +-+-+-+-+   +-+-----+
+    |           |           |                       |           |
+    V           |           V                       +-----------+
+  +-------+     |         +---+---+   +---+---+   +---+---+
+  |*table*|     |         |   |   +-->|   |   +-->|   | / |
+  +-------+     |         +-+-+---+   +-+-+---+   +-+-+---+
+                |           |           |           |
+                |           V           V           V
+                |       +-------+     +---+---+   +---+---+
+                |       |letters|     |   |   |   |   |   |
+                |       +-------+     +-+-+-+-+   +-+-+-+-+
+                |                       |   |       |   |
+                |                       V   V       V   V
+                |                    +---+ +---+ +---+ +---+
+                |                    | a | | 97| | b | | 98|
+                |                    +---+ +---+ +---+ +---+
+                V
+              +---+---+   +---+---+   +---+---+   +---+---+
+              |   |   +-->|   |   +-->|   |   +-->|   | / |
+              +-+-+---+   +-+-+---+   +-+-+---+   +-+-+---+
+                |           |           |           |
+                V           V           V           V
+            +------+      +---+---+   +---+---+   +---+---+
+            | math |      |   |   |   |   |   |   |   |   |
+            +------+      +-+-+-+-+   +-+-+-+-+   +-+-+-+-+
+                            |   |       |   |       |   |
+                            V   V       V   V       V   V
+                         +---+ +---+ +---+ +---+ +---+ +---+
+                         | + | | 43| | - | | 45| | • | | 42|
+                         +---+ +---+ +---+ +---+ +---+ +---+
+
+#+end_src
+
+#+RESULTS:
+[[file:pics/multi-table.png]]
+
+#+NAME: make_table_multi
+#+begin_src scheme
+  (define (make-table)
+    (define (assoc-f key records)
+      (cond ((null? records) #f)
+            ((equal? key (caar records)) (car records))
+            (else (assoc-f key (cdr records)))))
+    (let ((local-table (list '*table*)))
+      (define (lookup key-l table)
+        (cond ((null? table) #f)
+              ((null? key-l) (cdr table))
+              (else (let ((subtable (assoc-f (car key-l) (cdr table))))
+                      (and subtable
+                           (lookup (cdr key-l) subtable))))))
+      (define (insert! key-l table value)
+        (define (new-table end)
+          (cons (cons (car key-l)
+                      (if (null? (cdr key-l))
+                          value
+                          (insert! (cdr key-l) #nil value)))
+                end))
+        (cond ((and (null? key-l) (null? table)) (error "reached null key and table"))
+              ((null? key-l) (set-cdr! table value))
+              ((null? table) (new-table #nil))
+              (else
+               (let ((subtable (assoc-f (car key-l) (cdr table))))
+                 (if subtable
+                     (insert! (cdr key-l) subtable value)
+                     (set-cdr! table
+                               (new-table (cdr table))))))))
+      (define (dispatch m)
+        (cond ((eq? m 'lookup-proc)
+               (lambda (key-l) (lookup key-l local-table)))
+              ((eq? m 'insert-proc!)
+               (lambda (key-l value) (insert! key-l local-table value)))
+              ((eq? m 'assoc-f) assoc-f)
+              ((eq? m 'table) local-table)
+              (else (error "Unknown operation -- TABLE" m))))
+      dispatch))
+
+  <<get_put_table>>
+#+end_src
+
+#+begin_src scheme :results replace
+  <<make_table_multi>>
+  (put '(a) 2)
+  (put '(b) 3)
+  (put '(c a) 4)
+  (put '(c b) 5)
+  `(,(get '(a))
+    ,(get '(b))
+    ,(get '(c))
+    ,(get '(c b))
+    ,(get '(c a)))
+#+end_src
+
+#+RESULTS:
+: (2 3 ((b . 5) (a . 4)) 5 4)
+
+*Exercise 3.26*. To search a table as implemented above, one needs to scan through the list of records.  This is basically the unordered list representation of section *Note 2-3-3::.  For large tables, it may be more efficient to structure the table in a different manner.  Describe a table implementation where the (key, value) records are organized using a binary tree, assuming that keys can be ordered in some way (e.g., numerically or alphabetically).  (Compare *Note Exercise 2-66:: of Chapter 2.)
+
+Since the keys are elements of a set (they are unique), we can put each key as an element in a binary tree (as in 2.3.3), along with a pointer to the value. The values, however, could be trees themselves, which would represent the next dimension in the table (each unique key/set element corresponding to the next level in set). Given that we have an ordering for each dimension, we could even create a balanced binary tree.
+
+*Exercise 3.27* "Memoization" (also called "tabulation") is a technique that enables a procedure to record, in a local table, values that have previously been computed.  This technique can make a vast difference in the performance of a program.  A memoized procedure maintains a table in which values of previous calls are stored using as keys the arguments that produced the values.  When the memoized procedure is asked to compute a value, it first checks the table to see if the value is already there and, if so, just returns that value.  Otherwise, it computes the new value in the ordinary way and stores this in the table.  As an example of memoization, recall from section 1-2-2 the exponential process for computing Fibonacci numbers:
+
+#+begin_src scheme
+  (define (fib n)
+    (cond ((= n 0) 0)
+          ((= n 1) 1)
+          (else (+ (fib (- n 1))
+                   (fib (- n 2))))))
+#+end_src
+
+The memoized version of the same procedure is
+
+#+begin_src scheme
+  (define memo-fib
+    (memoize (lambda (n)
+               (cond ((= n 0) 0)
+                     ((= n 1) 1)
+                     (else (+ (memo-fib (- n 1))
+                              (memo-fib (- n 2))))))))
+#+end_src
+
+where the memoizer is defined as
+
+#+begin_src scheme
+  (define (memoize f)
+    (let ((table (make-table)))
+      (lambda (x)
+        (let ((previously-computed-result (lookup x table)))
+          (or previously-computed-result
+              (let ((result (f x)))
+                (insert! x result table)
+                result))))))
+#+end_src
+
+Draw an environment diagram to analyze the computation of ~(memo-fib 3)~.  Explain why ~memo-fib~ computes the nth Fibonacci number in a number of steps proportional to n.  Would the scheme still work if we had simply defined ~memo-fib~ to be ~(memoize fib)~?
+
+#+begin_src ditaa :file pics/make_account.png :results value replace
+            +----------------------------------------+
+  global -->|                              memo-fib  +------------+
+  env       |             memoize                    |            |
+            +----------------------------------------+            |
+                             ^                    ^               |
+                  +---+---+  |                    |               |
+       +----------+   |   +--+         +----------+------------+  |
+       |          +---+---+            |                       |  |
+       V                         E1 -->|                       |  |
+  parameters: f                        |                       |  |
+  body: (let ((table (make-table)))    |  table                |  |
+          (lambda (x)   +-----------+  +---+-------------------+  |
+            (...)))     |local-table|   ^  |                  ^   |
+                        | insert!   |   |  |                  |   |
+                        | lookup    +---+  |        +---+---+ |   |
+                  E2 -->|   dispatch|<---+ |        |   |   +-+   |
+                        +---------+-+    | |        +-+-+---+<----+
+                                  |      | |          |
+                                  v      | V          V
+                                 +----+--+-++     parameters: x
+                    params: m <--+    |     |     body: (let ((previously...))
+            (cond ((eq? m ...))  +----+-----+             (or ...))
+              ...)
+#+end_src
+
+Each call to memo-fib calls ~table~, through lookup, and consults the local-table list to see if memo-fib has been called on that input, and takes the already-computed result if it exists, or computes it if it hasn't. That's why the result is only computed once for each time.
+
+**** 3.3.4 A Simulator for Digital Circuits
+
+***** Primitive function boxes
+
+In simulating digital circuits, we have some basic elements: ~make-wire~ (creates wires that connect function boxes), various function boxes - ~or-gate~, ~and-gate~, ~inverter~, and the primitive lisp procedures that create function boxes - ~get-signal~, ~set-signal!~, ~add-action!~, along with a procedure that simulates a delay within the function boxes, ~after-delay~.
+
+So, an inverter is implemented:
+
+#+NAME: inverter
+#+begin_src scheme
+  (define (inverter input output)
+    (define (invert-input)
+      (let ((new-value (logical-not (get-signal input))))
+        (after-delay inverter-delay
+                     (lambda ()
+                       (set-signal! output new-value)))))
+    (add-action! input invert-input))
+
+  (define (logical-not s)
+    (cond ((= s 0) 1)
+               ((= s 1) 0)
+               (else (error "Invalid signal" s))))
+#+end_src
+
+#+NAME: and_gate
+#+begin_src scheme
+  (define (and-gate a1 a2 output)
+    (define (and-input)
+      (let ((new-value (logical-and (get-signal a1) (get-signal a2))))
+        (after-delay and-gate-delay
+                     (lambda ()
+                       (set-signal! output new-value)))))
+    (add-action! a1 and-input)
+    (add-action! a2 and-input))
+
+  (define (logical-and s1 s2)
+    (cond ((and (= s1 0) (= s2 0)) 0)
+          ((and (= s1 0) (= s2 1)) 0)
+          ((and (= s1 1) (= s2 0)) 0)
+          ((and (= s1 1) (= s2 1)) 1)
+          (else (error "Invalid signal" s1 s2))))
+#+end_src
+
+*Exercise 3.28*. Define an or-gate as a primitive function box. Your ~or-gate~ constructor should be similar to ~and-gate~.
+
+#+NAME: or_gate
+#+begin_src scheme
+  (define (or-gate a1 a2 output)
+    (define (or-input)
+      (let ((new-value (logical-or (get-signal a1) (get-signal a2))))
+        (after-delay or-gate-delay
+                     (lambda ()
+                       (set-signal! output new-value)))))
+    (add-action! a1 or-input)
+    (add-action! a2 or-input))
+
+  (define (logical-or s1 s2)
+    (cond ((and (= s1 0) (= s2 0)) 0)
+          ((and (= s1 0) (= s2 1)) 1)
+          ((and (= s1 1) (= s2 0)) 1)
+          ((and (= s1 1) (= s2 1)) 1)
+          (else (error "Invalid signal" s1 s2))))
+#+end_src
+
+*Exercise 3.29*. Another way to construct an or-gate is as a compound digital logic device, built from and-gates and inverters. Define a procedure ~or-gate~ that accomplishes this.  What is the delay time of the or-gate in terms of ~and-gate-delay~ and ~inverter-delay~?
+
+#+begin_src scheme
+  (define (or-deriv-gate a1 a2 output)
+    (let ((b (make-wire)) (c (make-wire))
+          (d (make-wire)))
+      (inverter a1 b)
+      (inverter a2 c)
+      (and-gate b c d)
+      (inverter d output)
+      'ok))
+#+end_src
+
+The delay of the or gate is \(2n + a\), where \(n\) is the delay of the inverters (I think the first two inverters can occur at the same moment, so they only count once).
+
+*Exercise 3.30*. Figure 3-27 shows a "ripple-carry adder" formed by stringing together n full-adders. This is the simplest form of parallel adder for adding two n-bit binary numbers. The inputs A_1, A_2, A_3, ..., A_n and B_1, B_2, B_3, ..., B_n are the two binary numbers to be added (each A_k and B_k is a 0 or a 1). The circuit generates S_1, S_2, S_3, ..., S_n, the n bits of the sum, and C, the carry from the addition.  Write a procedure ~ripple-carry-adder~ that generates this circuit. The procedure should take as arguments three lists of n wires each--the A_k, the B_k, and the S_k--and also another wire C. The major drawback of the ripple-carry adder is the need to wait for the carry signals to propagate. What is the delay needed to obtain the complete output from an n-bit ripple-carry adder, expressed in terms of the delays for and-gates, or-gates, and inverters?
+
+#+NAME: adders
+#+begin_src scheme
+  (define (half-adder a b s c)
+    (let ((d (make-wire)) (e (make-wire)))
+      (or-gate a b d)
+      (and-gate a b c)
+      (inverter c e)
+      (and-gate d e s)
+      'ok))
+
+  (define (full-adder a b c-in sum c-out)
+    (let ((s (make-wire))
+          (c1 (make-wire))
+          (c2 (make-wire)))
+      (half-adder b c-in s c1)
+      (half-adder a s sum c2)
+      (or-gate c1 c2 c-out)
+      'ok))
+
+  ;; (for reference, logical/list representation of adders)
+  (define (half-add a b)
+    `(,(and (or a b) (not (and a b))) ,(and a b)))
+
+  (define (full-add a b c)
+    (let ((bc (half-add b c)))
+      (let ((as (half-add a (car bc))))
+        `(,(car as) ,(or (cadr bc) (cadr as))))))
+
+  (define (ripple-carry-adder a-l b-l s-l c)
+    (let ((c-l (map (cdr a-l) (lambda (x) (make-wire)))))
+      (for-each full-adder a-l b-l (cons c c-l)
+                s-l (append c-l (make-wire)))
+      'ok))
+#+end_src
+
+The ripple-carry adder needs to propagate each c_i result (except the last nth) to the next gate, so each full adder needs to wait for the previous to complete, so it will take:
+
+\[fn = (2h + o)n = (2(\max({o,a+i}) + a) + o)n\]
+
+where \(f\) is the time for a full-adder, \(h\) a half-adder, \(o\), \(a\) and \(i\) for or-, and- and inverter gates.
+***** Representing wires
+A wire has two state variables, a ~signal-value~ and a collection of ~action-procedures~ that are run when the signal changes (and which are placed on each wire by the function-boxes).
+
+We implement the wire using message-patching style (with a ~dispatch~ procedure that selects the appropriate operation).
+
+#+NAME: wire
+#+begin_src scheme
+  (define (make-wire)
+    (let ((signal-value 0) (action-procedures '()))
+      (define (set-my-signal! new-value)
+        (if (not (= signal-value new-value))
+            (begin (set! signal-value new-value)
+                   (call-each action-procedures))
+            'done))
+      (define (accept-action-procedure! proc)
+        (set! action-procedures (cons proc action-procedures))
+        (proc))
+      (define (dispatch m)
+        (cond ((eq? m 'get-signal) signal-value)
+              ((eq? m 'set-signal!) set-my-signal!)
+              ((eq? m 'add-action!) accept-action-procedure!)
+              (else (error "Unknown operation -- WIRE"))))
+      dispatch))
+
+  (define (call-each procedures)
+    (if (null? procedures)
+        'done
+        (begin
+          ((car procedures))
+          (call-each (cdr procedures)))))
+
+  (define (get-signal wire)
+    (wire 'get-signal))
+
+  (define (set-signal! wire new-value)
+    ((wire 'set-signal!) new-value))
+
+  (define (add-action! wire action-procedure)
+    ((wire 'add-action!) action-procedure))
+#+end_src
+***** The agenda
+The last element is ~after-delay~, which manipulates an agenda that determines all the events in the simulation.
+
+An agenda has these elements:
+
+  * ~(make-agenda)~ returns a new empty agenda.
+
+  * ~(empty-agenda? <AGENDA>)~ is true if the specified agenda is empty.
+
+  * ~(first-agenda-item <AGENDA>)~ returns the first item on the agenda.
+
+  * ~(remove-first-agenda-item! <AGENDA>)~ modifies the agenda by removing the first item.
+
+  * ~(add-to-agenda! <TIME> <ACTION> <AGENDA>)~ modifies the agenda by adding the given action procedure to be run at the specified time.
+
+  * ~(current-time <AGENDA>)~ returns the current simulation time.
+
+~after-delay~ can be defined as below, along with the propagate function, which continues the simulation by running items on the agenda until there are none left.
+
+#+NAME: after_delay
+#+begin_src scheme
+  (define (after-delay delay action)
+    (add-to-agenda! (+ delay (current-time the-agenda))
+                    action
+                    the-agenda))
+
+  (define (propagate)
+    (if (empty-agenda? the-agenda)
+        'done
+        (let ((first-item (first-agenda-item the-agenda)))
+          (first-item)
+          (remove-first-agenda-item! the-agenda)
+          (propagate))))
+#+end_src
+***** A sample simulation
+A simple procedure illustrates the simulator. A ~probe~ tells the wire to print information any time a signal changes value.
+
+#+NAME: probe
+#+begin_src scheme
+  (define (probe name wire)
+    (add-action! wire
+                 (lambda ()
+                   (display name)
+                   (display " ")
+                   (display (current-time the-agenda))
+                   (display "  New-value = ")
+                   (display (get-signal wire))
+                   (newline))))
+#+end_src
+
+#+begin_src scheme
+  <<or_gate>>
+  <<and_gate>>
+  <<inverter>>
+  <<adders>>
+  <<wire>>
+  <<after_delay>>
+  <<probe>>
+  <<agenda>>
+  <<segments>>
+
+  (define the-agenda (make-agenda))
+  (define inverter-delay 2)
+  (define and-gate-delay 3)
+  (define or-gate-delay 5)
+
+  (define input-1 (make-wire))
+  (define input-2 (make-wire))
+  (define sum (make-wire))
+  (define carry (make-wire))
+
+  (probe 'sum sum)
+  (probe 'carry carry)
+  (half-adder input-1 input-2 sum carry)
+  (set-signal! input-1 1)
+  (propagate)
+  (set-signal! input-2 1)
+  (propagate)
+#+end_src
+
+*Exercise 3.31*. The internal procedure ~accept-action-procedure!~ defined in ~make-wire~ specifies that when a new action procedure is added to a wire, the procedure is immediately run.  Explain why this initialization is necessary.  In particular, trace through the half-adder example in the paragraphs above and say how the system's response would differ if we had defined ~accept-action-procedure!~ as
+
+#+begin_src scheme
+  (define (accept-action-procedure! proc)
+    (set! action-procedures (cons proc action-procedures)))
+#+end_src
+
+The probes would not print values when initially called. Not sure if anything else would be different?
+***** Implementing the agenda
+The last part is the agenda data structure. It will be a queue of time segments, each consisting of a pair of the time and a queue of procedures that should be run during that time segment.
+
+#+NAME: segments
+#+begin_src scheme
+  (define (make-time-segment time queue)
+    (cons time queue))
+
+  (define (segment-time s) (car s))
+
+  (define (segment-queue s) (cdr s))
+
+  (define (make-agenda) (list 0))
+
+  (define (current-time agenda) (car agenda))
+
+  (define (set-current-time! agenda time)
+    (set-car! agenda time))
+
+  (define (segments agenda) (cdr agenda))
+
+  (define (set-segments! agenda segments)
+    (set-cdr! agenda segments))
+
+  (define (first-segment agenda) (car (segments agenda)))
+
+  (define (rest-segments agenda) (cdr (segments agenda)))
+
+  (define (empty-agenda? agenda)
+    (null? (segments agenda)))
+#+end_src
+
+#+NAME: agenda
+#+begin_src scheme
+  <<queue_local_state>>
+  (define (add-to-agenda! time action agenda)
+    (define (belongs-before? segments)
+      (or (null? segments)
+          (< time (segment-time (car segments)))))
+    (define (make-new-time-segment time action)
+      (let ((q (make-queue)))
+        (insert-queue! q action)
+        (make-time-segment time q)))
+    (define (add-to-segments! segments)
+      (if (= (segment-time (car segments)) time)
+          (insert-queue! (segment-queue (car segments))
+                         action)
+          (let ((rest (cdr segments)))
+            (if (belongs-before? rest)
+                (set-cdr!
+                 segments
+                 (cons (make-new-time-segment time action)
+                       (cdr segments)))
+                (add-to-segments! rest)))))
+    (let ((segments (segments agenda)))
+      (if (belongs-before? segments)
+          (set-segments!
+           agenda
+           (cons (make-new-time-segment time action)
+                 segments))
+          (add-to-segments! segments))))
+
+  (define (remove-first-agenda-item! agenda)
+    (let ((q (segment-queue (first-segment agenda))))
+      (delete-queue! q)
+      (if (empty-queue? q)
+          (set-segments! agenda (rest-segments agenda)))))
+
+  (define (first-agenda-item agenda)
+    (if (empty-agenda? agenda)
+        (error "Agenda is empty -- FIRST-AGENDA-ITEM")
+        (let ((first-seg (first-segment agenda)))
+          (set-current-time! agenda (segment-time first-seg))
+          (front-queue (segment-queue first-seg)))))
+#+end_src
+
+#+begin_src scheme
+<<agenda>>
+<<segments>>
+#+end_src
+
+*Exercise 3.32*. The procedures to be run during each time segment of the agenda are kept in a queue.  Thus, the procedures for each segment are called in the order in which they were added to the agenda (first in, first out).  Explain why this order must be used.  In particular, trace the behavior of an and-gate whose inputs change from 0,1 to 1,0 in the same segment and say how the behavior would differ if we stored a segment's procedures in an ordinary list, adding and removing procedures only at the front (last in, first out).
+
+If we switch the and-gates inputs from 0,1 to 1,0, we need to call ~set-signal!~ twice, which means the inputs pass through a state of 1,1. They do this at the same exact time in "simulation time", so what matters is what the final action procedure call is, which sets the final output wire. For that to be correct, it must be the last call, which it will be if the FIFO order is preserved.
+**** 3.3.5 Propagation of Constraints
+Think of standard equations from physics with relations, like the deflection \(d\) of a metal rod with force \(F\), length \(L\), cross-sectional area \(A\) and elastic modulus \(E\):
+
+\[dAE = FL\]
+
+or converting Fahrenheit to Celsius:
+
+\[9C = 5(F - 32)\].
+
+If we translate this into traditional computer languages, it would be uni-directional, and we'd have to choose one quantity to be computed in terms of the other four.
+
+However, we can draw from our digital circuit simulator and treat these as constraints, such that a change to one input can trigger changes to the others given a set of constraints.
+***** Using the constraint system
+
+#+NAME: cf_converter
+#+begin_src scheme
+  (define (celsius-fahrenheit-converter c f)
+    (let ((u (make-connector))
+          (v (make-connector))
+          (w (make-connector))
+          (x (make-connector))
+          (y (make-connector)))
+      (multiplier c w u)
+      (multiplier v x u)
+      (adder v y f)
+      (constant 9 w)
+      (constant 5 x)
+      (constant 32 y)
+      'ok))
+#+end_src
+
+#+begin_src scheme :results replace output
+  <<connector_pkg>>
+  <<cf_converter>>
+  (define C (make-connector))
+  (define F (make-connector))
+  (celsius-fahrenheit-converter C F)
+  (probe "Celsius temp" C)
+  (probe "Fahrenheit temp" F)
+  (set-value! C 25 'user)
+  ;; (set-value! F 212 'user)
+  (forget-value! C 'user)
+  (set-value! F 212 'user)
+#+end_src
+
+#+RESULTS:
+: "Probe: Celsius temp = 25\nProbe: Fahrenheit temp = 77\nProbe: Celsius temp = ??\nProbe: Fahrenheit temp = ??\nProbe: Fahrenheit temp = 212\nProbe: Celsius temp = 100\n"
+
+***** Implementing the constraint system
+The basic operations on connectors are the following:
+
+ * ~(has-value? <CONNECTOR>)~ tells whether the connector has a value.
+
+ * ~(get-value <CONNECTOR>)~ returns the connector~s current value.
+
+ * ~(set-value! <CONNECTOR> <NEW-VALUE> <INFORMANT>)~ indicates that the informant is requesting the connector to set its value to the new value.
+
+ * ~(forget-value! <CONNECTOR> <RETRACTOR>)~ tells the connector that the retractor is requesting it to forget its value.
+
+ * ~(connect <CONNECTOR> <NEW-CONSTRAINT>)~ tells the connector to participate in the new constraint.
+
+#+NAME: adder
+#+begin_src scheme
+  (define (adder a1 a2 sum)
+    (define (process-new-value)
+      (cond ((and (has-value? a1) (has-value? a2))
+             (set-value! sum
+                         (+ (get-value a1) (get-value a2))
+                         me))
+            ((and (has-value? a1) (has-value? sum))
+             (set-value! a2
+                         (- (get-value sum) (get-value a1))
+                         me))
+            ((and (has-value? a2) (has-value? sum))
+             (set-value! a1
+                         (- (get-value sum) (get-value a2))
+                         me))))
+    (define (process-forget-value)
+      (forget-value! sum me)
+      (forget-value! a1 me)
+      (forget-value! a2 me)
+      (process-new-value))
+    (define (me request)
+      (cond ((eq? request 'I-have-a-value)
+             (process-new-value))
+             ((eq? request 'I-lost-my-value)
+             (process-forget-value))
+            (else
+             (error "Unknown request -- ADDER" request))))
+    (connect a1 me)
+    (connect a2 me)
+    (connect sum me)
+    me)
+#+end_src
+
+#+NAME: inform
+#+begin_src scheme
+  (define (inform-about-value constraint)
+    (constraint 'I-have-a-value))
+
+  (define (inform-about-no-value constraint)
+    (constraint 'I-lost-my-value))
+#+end_src
+
+#+NAME: multiplier
+#+begin_src scheme
+  (define (multiplier m1 m2 prod)
+    (define (process-new-value)
+      (cond ((and (has-value? m1) (has-value? m2))
+             (set-value! prod
+                         (* (get-value m1) (get-value m2))
+                         me))
+            ((and (has-value? m1) (has-value? prod))
+             (set-value! m2
+                         (/ (get-value prod) (get-value m1))
+                         me))
+            ((and (has-value? m2) (has-value? prod))
+             (set-value! m1
+                         (/ (get-value prod) (get-value m2))
+                         me))))
+    (define (process-forget-value)
+      (forget-value! prod me)
+      (forget-value! m1 me)
+      (forget-value! m2 me)
+      (process-new-value))
+    (define (me request)
+      (cond ((eq? request 'I-have-a-value)
+             (process-new-value))
+            ((eq? request 'I-lost-my-value)
+             (process-forget-value))
+            (else
+             (error "Unknown request -- MULTIPLIER" request))))
+    (connect m1 me)
+    (connect m2 me)
+    (connect prod me))
+#+end_src
+
+#+NAME: constant
+#+begin_src scheme
+  (define (constant value connector)
+    (define (me request)
+      (error "Unknown request -- CONSTANT" request))
+    (connect connector me)
+    (set-value! connector value me)
+    me)
+#+end_src
+
+#+NAME: probe_connector
+#+begin_src scheme
+  (define (probe name connector)
+    (define (print-probe value)
+      (display "Probe: ")
+      (display name)
+      (display " = ")
+      (display value)
+      (newline))
+    (define (process-new-value)
+      (print-probe (get-value connector)))
+    (define (process-forget-value )
+      (print-probe "??"))
+    (define (me request)
+      (cond ((eq? request 'I-have-a-value)
+             (process-new-value))
+            ((eq? request 'I-lost-my-value)
+             (process-forget-value))
+            (else
+             (error "Unknown request -- PROBE" request))))
+    (connect connector me)
+    me)
+#+end_src
+***** Representing connectors
+A connector is a procedural object with local state variables:
+  * ~value~: current value of the connector
+  * ~informant~: the object that set the connector's value
+  * ~constraints~: a list of the constraints the connector participates in
+
+#+NAME: connector
+#+begin_src scheme
+  (define (make-connector)
+    (let ((value #f) (informant #f) (constraints '()))
+      (define (set-my-value newval setter)
+        (cond ((not (has-value? me))
+               (set! value newval)
+               (set! informant setter)
+               (foreach-except setter
+                                inform-about-value
+                                constraints))
+              ((not (= value newval))
+               (error "Contradiction" (list value newval)))
+              (else 'ignored)))
+      (define (forget-my-value retractor)
+        (if (eq? retractor informant)
+            (begin (set! informant #f)
+                   (foreach-except retractor
+                                    inform-about-no-value
+                                    constraints))
+            'ignored))
+      (define (connect new-constraint)
+        (if (not (memq new-constraint constraints))
+            (set! constraints
+                  (cons new-constraint constraints)))
+        (if (has-value? me)
+            (inform-about-value new-constraint))
+        'done)
+      (define (me request)
+        (cond ((eq? request 'has-value?)
+               (if informant #t #f))
+              ((eq? request 'value) value)
+              ((eq? request 'set-value!) set-my-value)
+              ((eq? request 'forget) forget-my-value)
+              ((eq? request 'connect) connect)
+              (else (error "Unknown operation -- CONNECTOR"
+                           request))))
+      me))
+#+end_src
+
+#+NAME: foreach_except
+#+begin_src scheme
+  (define (foreach-except exception procedure list)
+    (define (loop items)
+      (cond ((null? items) 'done)
+            ((eq? (car items) exception) (loop (cdr items)))
+            (else (procedure (car items))
+                  (loop (cdr items)))))
+    (loop list))
+#+end_src
+
+#+NAME: value_connector
+#+begin_src scheme
+  (define (has-value? connector)
+    (connector 'has-value?))
+
+  (define (get-value connector)
+    (connector 'value))
+
+  (define (set-value! connector new-value informant)
+    ((connector 'set-value!) new-value informant))
+
+  (define (forget-value! connector retractor)
+    ((connector 'forget) retractor))
+
+  (define (connect connector new-constraint)
+    ((connector 'connect) new-constraint))
+#+end_src
+
+*Exercise 3.33*. Using primitive multiplier, adder, and constant constraints, define a procedure ~averager~ that takes three connectors ~a~, ~b~, and ~c~ as inputs and establishes the constraint that the value of ~c~ is the average of the values of ~a~ and ~b~.
+
+#+NAME: averager
+#+begin_src scheme
+  (define (averager a b c)
+    (define (process-new-value)
+      (cond ((and (has-value? a) (has-value? b))
+             (set-value! c
+                         (/ (+ a b) 2)
+                         me))
+            ((and (has-value? a) (has-value? c))
+             (set-value! b
+                         (- (* 2 c) a)
+                         me))
+            ((and (has-value? b) (has-value? c))
+             (set-value! a
+                         (- (* 2 c) b)
+                         me))))
+    (define (process-forget-value)
+      (forget-value! a me)
+      (forget-value! b me)
+      (forget-value! c me)
+      (process-new-value))
+    (define (me request)
+      (cond ((eq? request 'I-have-a-value)
+             (process-new-value))
+            ((eq? request 'I-lost-my-value)
+             (process-forget-value))
+            (else
+             (error "Unknown request -- AVERAGER"))))
+
+    (connect a me)
+    (connect b me)
+    (connect c me)
+    me)
+#+end_src
+
+#+NAME: connector_pkg
+#+begin_src scheme
+<<adder>>
+<<inform>>
+<<multiplier>>
+<<constant>>
+<<probe_connector>>
+<<connector>>
+<<foreach_except>>
+<<value_connector>>
+<<averager>>
+<<squarer>>
+#+end_src
+
+*Exercise 3.34*. Louis Reasoner wants to build a squarer, a constraint device with two terminals such that the value of connector ~b~ on the second terminal will always be the square of the value ~a~ on the first terminal.  He proposes the following simple device made from a multiplier:
+
+#+begin_src scheme
+  <<connector_pkg>>
+  (define (squarer a b)
+    (multiplier a a b))
+#+end_src
+
+There is a serious flaw in this idea.  Explain.
+
+It will be ok calculating from a => b, but since the multiplier has three connectors, it always checks that there are values on at least two, in order to calculate the third. When b is set, and a is not, there will not be two values and so ~process-new-value~ won't trigger a new calculation.
+
+*Exercise 3.35*. Ben Bitdiddle tells Louis that one way to avoid the trouble in *Note Exercise 3-34 is to define a squarer as a new primitive constraint.  Fill in the missing portions in Ben's outline for a procedure to implement such a constraint:
+
+#+NAME: squarer
+#+begin_src scheme
+  (define (squarer a b)
+    (define (process-new-value)
+      (if (has-value? b)
+          (if (< (get-value b) 0)
+              (error "square less than 0 -- SQUARER" (get-value b))
+              (set-value! a (sqrt (get-value b)) me))
+          (if (has-value? a)
+              (let ((a-val (get-value a)))
+                (set-value! b (* a-val a-val) me)))))
+    (define (process-forget-value)
+      (forget-value! a me)
+      (forget-value! b me)
+      (process-new-value))
+    (define (me request)
+      (cond ((eq? request 'I-have-a-value)
+             (process-new-value))
+            ((eq? request 'I-lost-my-value)
+             (process-forget-value))
+            (else
+             (error "Unknown request -- SQUARER"))))
+    (connect a me)
+    (connect b me)
+    me)
+#+end_src
+
+#+begin_src scheme :results replace output
+<<connector_pkg>>
+(define x (make-connector))
+(define y (make-connector))
+(squarer x y)
+(probe "x value" x)
+(probe "y value" y)
+(set-value! x 5 'user)
+(forget-value! x 'user)
+(set-value! y 49 'user)
+#+end_src
+
+#+RESULTS:
+: "Probe: x value = 5\nProbe: y value = 25\nProbe: x value = ??\nProbe: y value = ??\nProbe: y value = 49\nProbe: x value = 7\n"
+
+*Exercise 3.36*. Suppose we evaluate the following sequence of expressions in the global environment:
+
+#+begin_src scheme
+  (define a (make-connector))
+  (define b (make-connector))
+  (set-value! a 10 'user)
+#+end_src
+
+At some time during evaluation of the ~set-value!~, the following expression from the connector's local procedure is evaluated:
+
+#+begin_src scheme
+  (for-each-except setter inform-about-value constraints)
+#+end_src
+
+Draw an environment diagram showing the environment in which the above expression is evaluated.
+
+#+begin_src ditaa :file pics/connector.png :results value replace
+
+            +--------------------------------------------------+
+  global -->|                                                  |
+  env       |      a -+                                        |
+            +---------+----------------------------------------+
+                      |                           ^
+                      V       +-----------+       |
+                  +---+---+   |           v       |
+       +----------+   |   +---+        +----------+----------------+
+       |          +---+---+    +-------+ me              value |   |
+       V                ^      | E1 -->| set-my-value!   informant |
+  parameters  request   +------+       | forget-my-value constr... |
+  body  (cond ((eq? ...) ...)          | connect                   |
+              ((eq? ...) ...)          +---------------------------+
+              ...)
+#+end_src
+
+#+RESULTS:
+[[file:pics/connector.png]]
+
+*Exercise 3.37*. The ~celsius-fahrenheit-converter~ procedure is cumbersome when compared with a more expression-oriented style of definition, such as
+
+#+NAME: cf_constraint
+#+begin_src scheme
+  (define (celsius-fahrenheit-converter x)
+    (c+ (c* (c/ (cv 9) (cv 5))
+            x)
+        (cv 32)))
+
+  (define C (make-connector))
+  (define F (celsius-fahrenheit-converter C))
+#+end_src
+
+Here ~c+~, ~c*~, etc. are the "constraint" versions of the arithmetic operations.  For example, ~c+~ takes two connectors as arguments and returns a connector that is related to these by an adder constraint:
+
+#+NAME: c_plus
+#+begin_src scheme
+  (define (c+ x y)
+    (let ((z (make-connector)))
+      (adder x y z)
+      z))
+#+end_src
+
+Define analogous procedures ~c-~, ~c*~, ~c/~, and ~cv~ (constant value) that enable us to define compound constraints as in the converter example above.
+
+#+NAME: constraint_arithmetic
+#+begin_src scheme
+  <<c_plus>>
+  (define (cv c)
+    (let ((const (make-connector)))
+      (constant c const)
+      const))
+
+
+  (define (c- x y)
+    (let ((z (make-connector)))
+      (adder z y x)
+      z))
+
+  (define (c* x y)
+    (let ((z (make-connector)))
+      (multiplier x y z)
+      z))
+
+  ;; 123456777789901
+  ;; 703 831 7288
+  ;; 8890000000000000222212`12345678900000000000000000000000000000000pppoiuytrewqqqqqqqqqasssdffffffffffghjkl;'iiiiii
+
+  (define (c/ x y)
+    (let ((z (make-connector)))
+      (multiplier z y x)
+      z))
+#+end_src
+
+#+begin_src scheme :results replace output
+  <<connector_pkg>>
+  <<constraint_arithmetic>>
+  <<cf_constraint>>
+  (probe "Celsius value" C)
+  (probe "Fahrenheit value" F)
+  (set-value! C 20 'user)
+  (forget-value! C 'user)
+  (set-value! F 32 'user)
+#+end_src
+
+#+RESULTS:
+: "Probe: Celsius value = 20\nProbe: Fahrenheit value = 68\nProbe: Celsius value = ??\nProbe: Fahrenheit value = ??\nProbe: Fahrenheit value = 32\nProbe: Celsius value = 0\n"
+*** 3.4 Concurrency: Time Is of the Essence
+"Lurking beneath the complexity of state, sameness, and change is that by introducing assignment we are forced to admit 'time' into our computational models".
+
+If our computational models are to match the "world", they do not necessarily change one at a time in sequence, but "concurrently".
+**** 3.4.1 The Nature of Time in Concurrent Systems
+More than one process may share a common state variable, and if they do so at the same time, this can cause indeterminacy and subtle bugs if we're not careful.
+
+*Exercise 3.38*. Suppose that Peter, Paul, and Mary share a joint bank account that initially contains $100.  Concurrently, Peter deposits $10, Paul withdraws $20, and Mary withdraws half the money in the account, by executing the following commands:
+
+    Peter: (set! balance (+ balance 10))
+    Paul:  (set! balance (- balance 20))
+    Mary:  (set! balance (- balance (/ balance 2)))
+
+a. List all the different possible values for ~balance~ after these three transactions have been completed, assuming that the banking system forces the three processes to run sequentially in some order.
+
+100 -> 110 -> 90 -> 45 *
+100 -> 110 -> 55 -> 35 *
+100 -> 80 -> 90 -> 45
+100 -> 80 -> 40 -> 50 *
+100 -> 50 -> 60 -> 40 *
+100 -> 50 -> 30 -> 40
+
+b. What are some other values that could be produced if the system allows the processes to be interleaved?  Draw timing diagrams like the one in *Note Figure 3-29 to explain how these values can occur.
+
+   * (all access balance first before either sets, then set! balance at different times)
+     110, 80, 50
+   * (Peter sets before others access, access simultaneously) - 90, 55
+   * (Paul sets before, access simul.) - 90, 40
+   * (Mary sets before, access simul.) - 60, 30
+     ...
+**** 3.4.2 Mechanisms for Controlling Concurrency
+If we have two processes, each with three ordered events - (a,b,c) (x,y,z), there are 20 different possible orderings that are consistent with the individual orderings. It is impractical to consider all possible orderings and deal with their behavior explicitly. There are mechanisms that can constrain the interleaving of concurrent processes. One is "serialization".
+***** Serializing access to shared state
+Serialization groups specific sets of procedures such that only one execution in a serialized set can occur at the same time.
+***** Serializers in Scheme
+An illustration uses a procedure called ~parallel-execute~:
+
+#+begin_src scheme
+  (parallel-execute <P_1> <P_2> ... <P_K>)
+#+end_src
+
+So if we do this:
+
+#+begin_src scheme
+  (define x 10)
+
+  (parallel-execute (lambda () (set! x (* x x)))
+                    (lambda () (set! x (+ x 1))))
+#+end_src
+
+It creates two concurrent processes, with a variety of possible outcomes:
+
+     101: P_1 sets `x' to 100 and then P_2 increments
+          `x' to 101.
+     121: P_2 increments `x' to 11 and then P_1 sets
+          `x' to `x' times `x'.
+     110: P_2 changes `x' from 10 to 11 between the two
+          times that P_1 accesses the value of `x' during
+          the evaluation of `(* x x)'.
+     11:  P_2 accesses `x', then P_1 sets `x' to
+          100, then P_2 sets `x'.
+     100: P_1 accesses `x' (twice), then P_2 sets
+          `x' to 11, then P_1 sets `x'.
+
+This can be constrained with serial procedures, created by "serializers".
+
+The following can only produce two possible values for ~x~.
+
+#+begin_src scheme
+  (define x 10)
+
+  (define s (make-serializer))
+
+  (parallel-execute (s (lambda () (set! x (* x x))))
+                    (s (lambda () (set! x (+ x 1)))))
+#+end_src
+
+For instance, this is a ~make-account~ version with serializers:
+
+#+begin_src scheme
+  (define (make-account balance)
+    (define (withdraw amount)
+      (if (>= balance amount)
+          (begin (set! balance (- balance amount))
+                 balance)
+          "Insufficient funds"))
+    (define (deposit amount)
+      (set! balance (+ balance amount))
+      balance)
+    (let ((protected (make-serializer)))
+      (define (dispatch m)
+        (cond ((eq? m 'withdraw) (protected withdraw))
+              ((eq? m 'deposit) (protected deposit))
+              ((eq? m 'balance) balance)
+              (else (error "Unknown request -- MAKE-ACCOUNT"
+                           m))))
+      dispatch))
+#+end_src
+
+*Exercise 3.39*. Which of the five possibilities in the parallel execution shown above remain if we instead serialize execution as follows:
+
+#+begin_src scheme
+  <<full_mutex>>
+  <<make_serializer>>
+  (define x 10)
+
+  (define s (make-serializer))
+
+  (parallel ((lambda () (set! x ((s (lambda () (* x x)))))))
+            ((s (lambda () (set! x (+ x 1))))))
+  x
+#+end_src
+
+101, 121, 100 (P_1 computes square, P_2 sets x to 11, P_1 sets x to 100)
+
+(not 110 since (* x x) is serialized, not 11 since P_2 is serialized and sets a value once it's computed)
+
+*Exercise 3.40*. Give all possible values of ~x~ that can result from executing
+
+#+begin_src scheme
+  (define x 10)
+
+  (parallel-execute (lambda () (set! x (* x x)))
+                    (lambda () (set! x (* x x x))))
+#+end_src
+
+Which of these possibilities remain if we instead use serialized procedures:
+
+#+begin_src scheme
+  <<full_mutex>>
+  <<make_serializer>>
+
+  (define x 10)
+
+  (define s (make-serializer))
+
+  (parallel (s (lambda () (set! x (* x x))))
+            (s (lambda () (set! x (* x x x)))))
+#+end_src
+
+  * 1e6 (P_1 then P_2; or P_2 then P_1), 1e4 (one x accessed in P_1 as 10, second accessed after P_2 completes; or two x's accessed in P_2 as 10, the next as 100), 1e5 (one x accessed in P_2 as 10, the next two as 100 after P_1 completes)
+  * only 1e6
+
+*Exercise 3.41*. Ben Bitdiddle worries that it would be better to implement the bank account as follows (where the commented line has been changed):
+
+#+begin_src scheme
+  (define (make-account balance)
+    (define (withdraw amount)
+      (if (>= balance amount)
+          (begin (set! balance (- balance amount))
+                 balance)
+          "Insufficient funds"))
+    (define (deposit amount)
+      (set! balance (+ balance amount))
+      balance)
+    (let ((protected (make-serializer)))
+      (define (dispatch m)
+        (cond ((eq? m 'withdraw) (protected withdraw))
+              ((eq? m 'deposit) (protected deposit))
+              ((eq? m 'balance)
+               ((protected (lambda () balance)))) ; serialized
+              (else (error "Unknown request -- MAKE-ACCOUNT"
+                           m))))
+      dispatch))
+#+end_src
+
+because allowing unserialized access to the bank balance can result in anomalous behavior.  Do you agree?  Is there any scenario that demonstrates Ben's concern?
+
+If we are using the balance to do something important, i.e. it's an input to another operation (on another account, on this account), it could give an erroneous value (something prior to a withdrawal or deposit is completed). Later there's the case of multiple accounts and exchanging balances, that might apply here.
+
+
+*Exercise 3.42*. Ben Bitdiddle suggests that it's a waste of time to create a new serialized procedure in response to every ~withdraw~ and ~deposit~ message.  He says that ~make-account~ could be changed so that the calls to ~protected~ are done outside the ~dispatch~ procedure.  That is, an account would return the same serialized procedure (which was created at the same time as the account) each time it is asked for a withdrawal procedure.
+
+#+begin_src scheme
+  (define (make-account balance)
+    (define (withdraw amount)
+      (if (>= balance amount)
+          (begin (set! balance (- balance amount))
+                 balance)
+          "Insufficient funds"))
+    (define (deposit amount)
+      (set! balance (+ balance amount))
+      balance)
+    (let ((protected (make-serializer)))
+      (let ((protected-withdraw (protected withdraw))
+            (protected-deposit (protected deposit)))
+        (define (dispatch m)
+          (cond ((eq? m 'withdraw) protected-withdraw)
+                ((eq? m 'deposit) protected-deposit)
+                ((eq? m 'balance) balance)
+                (else (error "Unknown request -- MAKE-ACCOUNT"
+                             m))))
+        dispatch)))
+#+end_src
+
+Is this a safe change to make?  In particular, is there any difference in what concurrency is allowed by these two versions of ~make-account~ ?
+
+TODO (look at implementation of serializer)
+  * one difference, the serializer function (~protected~) is called only twice in this version, whereas it's called each time dispatch is called in the original version
+
+***** Complexity of using multiple shared resources
+Using serializers is relatively straightforward when there is one shared resource, but it can be much more difficult with multiple.
+
+One way to deal with this, for instance in ~make-account~ is associating a serializer with each account, and exporting the serializer so that it is the responsibility of the user to manage the serialization.
+
+*Exercise 3.43*. Suppose that the balances in three accounts start out as $10, $20, and $30, and that multiple processes run, exchanging the balances in the accounts.  Argue that if the processes are run sequentially, after any number of concurrent exchanges, the account balances should be $10, $20, and $30 in some order.  Draw a timing diagram like the one in *Note Figure 3-29 to show how this condition can be violated if the exchanges are implemented using the first version of the account-exchange program in this section.  On the other hand, argue that even with this ~exchange~ program, the sum of the balances in the accounts will be preserved.  Draw a timing diagram to show how even this condition would be violated if we did not serialize the transactions on individual accounts.
+
+  * After any given exchange, two accounts' values are switched, so the same values always remain after each given exchange. Since exchanges are run sequentially and not in parallel, there will always be the same three values.
+  * call exchange $10 acct, $20 acct; after difference is computed, but before deposit/withdraw complete exchange $20 acct, $30 acct; now the order of accts is $10, $30, $20, then the first two account exchange is completed by subtracting $10 from the first two accounts and we have $20, $20, $20.
+  * since each exchange subtracts an amount x from one account and adds x to another account (and each of those actions are serialized), the total amount in any two account before and after any exchange is the same.
+  * call 'withdraw' x; after the difference between balance and amount is computed, but before balance is set, another 'withdraw' y is completed; then balance is set to the first difference (balance - x), but it should be (balance - x - y).
+
+*Exercise 3.44*. Consider the problem of transferring an amount from one account to another.  Ben Bitdiddle claims that this can be accomplished with the following procedure, even if there are multiple people concurrently transferring money among multiple accounts, using any account mechanism that serializes deposit and withdrawal transactions, for example, the version of ~make-account~ in the text above.
+
+#+begin_src scheme
+  (define (transfer from-account to-account amount)
+    ((from-account 'withdraw) amount)
+    ((to-account 'deposit) amount))
+#+end_src
+
+
+Louis Reasoner claims that there is a problem here, and that we need to use a more sophisticated method, such as the one required for dealing with the exchange problem.  Is Louis right?  If not, what is the essential difference between the transfer problem and the exchange problem?  (You should assume that the balance in ~from-account~ is at least ~amount~.)
+
+  * I don't think Louis is right (though there could be other issues with this implementation such as the correct balance being inferred or in an account).
+  * The difference between transfer and exchange is that with transfer there's no accessing of balances involved (at non-serialized points in time).
+
+*Exercise 3.45*. Louis Reasoner thinks our bank-account system is unnecessarily complex and error-prone now that deposits and withdrawals aren't automatically serialized.  He suggests that ~make-account-and-serializer~ should have exported the serializer (for use by such procedures as ~serialized-exchange~) in addition to (rather than instead of) using it to serialize accounts and deposits as ~make-account~ did.  He proposes to redefine accounts as follows:
+
+#+begin_src scheme
+  (define (make-account-and-serializer balance)
+    (define (withdraw amount)
+      (if (>= balance amount)
+          (begin (set! balance (- balance amount))
+                 balance)
+          "Insufficient funds"))
+    (define (deposit amount)
+      (set! balance (+ balance amount))
+      balance)
+    (let ((balance-serializer (make-serializer)))
+      (define (dispatch m)
+        (cond ((eq? m 'withdraw) (balance-serializer withdraw))
+              ((eq? m 'deposit) (balance-serializer deposit))
+              ((eq? m 'balance) balance)
+              ((eq? m 'serializer) balance-serializer)
+              (else (error "Unknown request -- MAKE-ACCOUNT"
+                           m))))
+      dispatch))
+#+end_src
+
+Then deposits are handled as with the original ~make-account~:
+
+#+begin_src scheme
+  (define (deposit account amount)
+    ((account 'deposit) amount))
+#+end_src
+
+Explain what is wrong with Louis's reasoning.  In particular, consider what happens when ~serialized-exchange~ is called.
+
+  * It looks like when we call ~serialized-exchange~, we are using the same serializer to serialize a procedure that has already been serialized by that procedure. What would happen (??) is a serialized ~exchange~ procedure would call a 'withdraw that has been serialized by the same serializer, and so it would block for the ~exchange~ procedure to complete, which it won't do, and thus it will block forever.
+***** Implementing serializers
+Serializers are implemented with a "mutex", which is an object that supports two operations ~acquire~ and ~release~.
+
+#+NAME: make_serializer
+#+begin_src scheme
+  (define (make-serializer)
+    (let ((mutex (my-make-mutex)))
+      (lambda (p)
+        (define (serialized-p . args)
+          (mutex 'acquire)
+          (let ((val (apply p args)))
+            (mutex 'release)
+            val))
+        serialized-p)))
+#+end_src
+
+The mutex itself is mutable, and can hold the value true or false. When it's false, it can be acquired, when it's false it can't and any process that is attempting to acquire it waits.
+
+#+NAME: mutex
+#+begin_src scheme
+  (define (my-make-mutex)
+    (let ((cell (list #f)))
+      (define (the-mutex m)
+        (cond ((eq? m 'acquire)
+               (if (test-and-set! cell)
+                   (the-mutex 'acquire))) ; retry
+              ((eq? m 'release) (clear! cell))))
+      the-mutex))
+#+end_src
+
+#+NAME: mutex_sup
+#+begin_src scheme
+  (define (clear! cell)
+    (set-car! cell #f))
+
+  (define (test-and-set! cell)
+    (if (car cell)
+        #t
+        (begin (set-car! cell #t)
+               #f)))
+#+end_src
+
+Note: ~test-and-set~ must be performed "atomically", it must be guaranteed that once (car cell) is called, and returns false, (set-car! cell #t) must be called before any other process tests the cell. Otherwise the mutex itself can fail similarly to ~make-account~.
+
+This can be done in various ways, for example for a single processor in MIT scheme, ~without-interrupts~ will disable time-slicing:
+
+#+begin_src scheme
+  (define (test-and-set! cell)
+    (without-interrupts
+     (lambda ()
+       (if (car cell)
+           true
+           (begin (set-car! cell true)
+                  false)))))
+#+end_src
+
+On multiprocessors, there are variants whose design must be carefully matched to the machine's processor-memory interface.
+
+*Exercise 3.46*. Suppose that we implement ~test-and-set!~  using an ordinary procedure as shown in the text, without attempting to make the operation atomic.  Draw a timing diagram like the one in *Note Figure 3-29 to demonstrate how the mutex implementation can fail by allowing two processes to acquire the mutex at the same time.
+
+  * (car cell) is initially set to false; P-1 calls test-and-set; P-1 accesses (car cell), which is false; before P-1 can call set-car!, P-2 calls test-and set and completes (thus the mutex is acquired by P-2); P-1 completes setting the mutex to true and thus also acquires the mutex. This is a failure because both processes have acquired the mutex.
+
+*Exercise 3.47*. A semaphore (of size n) is a generalization of a mutex.  Like a mutex, a semaphore supports acquire and release operations, but it is more general in that up to n processes can acquire it concurrently.  Additional processes that attempt to acquire the semaphore must wait for release operations.  Give implementations of semaphores
+
+a. in terms of mutexes
+
+#+NAME: full_mutex
+#+begin_src scheme
+  <<mutex>>
+  (define (make-t-and-s)
+    (let ((arbs '()))
+      (define (get-arbiter cell)
+        (let ((arb (memq cell arbs)))
+          (or arb
+              (make-arbiter 'blah))))
+      (define (test-and-set! cell)
+        (let ((arb (get-arbiter cell)))
+          (if (try-arbiter arb)
+              (begin (set-car! cell #t)
+                     #f)
+              #t)))
+      (define (clear! cell)
+        (let ((arb (get-arbiter cell)))
+          (set-car! cell #f)
+          (release-arbiter arb)))
+      (define (dispatch m)
+        (cond ((eq? m 'test-and-set!)
+               test-and-set!)
+              ((eq? m 'clear!)
+               clear!)
+              (else (error "unknown option -- DISPATCH"))))
+      dispatch))
+
+  (define this-arbiter (make-t-and-s))
+  (define (test-and-set! cell) ((this-arbiter 'test-and-set!) cell))
+  (define (clear! cell) ((this-arbiter 'clear!) cell))
+#+end_src
+
+#+begin_src scheme
+  (define (semaphore n)
+    (let ((num-acquired 0)
+          (mutex (my-make-mutex))
+          (count-mutex (my-make-mutex)))
+      (define (the-mutex-n m)
+        (count-mutex 'acquire)
+        (if (= num-acquired n)
+            (begin (count-mutex 'release)
+                   (mutex m))
+            (begin (set! num-acquired
+                         ((cond ((eq? m 'acquire) +)
+                                ((eq? m 'release) -)
+                                (else (error "not acquire or release-- SEMAPHORE")))
+                          num-acquired 1))
+                   (count-mutex 'release))))
+      the-mutex-n))
+#+end_src
+
+b. in terms of atomic ~test-and-set!~ operations.
+
+#+begin_src scheme
+  (define (semaphore n)
+    (let ((cell-main (list #f))
+          (num-acquired 0)
+          (cell-count (list #f)))
+      (define (the-mutex-n m)
+        (define (wait-acquire! cell)
+          (if (test-and-set! cell)
+              (the-mutex-n 'acquire)))
+        (wait-acquire! cell-count)
+        (let ((is-acquire
+               (cond ((eq? m 'acquire) #t)
+                     ((eq? m 'release) #f)
+                     (else (error "m not acquire or release -- SEMAPHORE")))))
+          (if (= num-acquired n)
+              ((if is-acquire wait-acquire! clear!)
+               cell-main)
+              (set! num-acquired
+                    ((if is-acquire + -) num-acquired 1))))
+        (clear! cell-count))
+      the-mutex-n))
+#+end_src
+***** Deadlock
+Imagine, in the account exchange examples, Peter attempts to exchange a1 and a2, while Paul attempts to exchange a2 with a1, and further that Peter's process has entered a stage of serialized protection on a1, and Paul the same on a2. They will now both block forever. This is "deadlock".
+
+One way to avoid this in the exchange example would be by giving each account a # and entering the exchange procedure by locking the lowest-numbered account first.
+
+*Exercise 3.48*. Explain in detail why the deadlock-avoidance method described above, (i.e., the accounts are numbered, and each process attempts to acquire the smaller-numbered account first) avoids deadlock in the exchange problem.  Rewrite ~serialized-exchange~ to incorporate this idea.  (You will also need to modify ~make-account~ so that each account is created with a number, which can be accessed by sending an appropriate message.)
+
+  * Assume Peter is trying to acquire the lower-numbered account, and another process is blocking it. That process itself must itself be blocking on either the lower-numbered or higher-number account of its process. If it's the lower, then once it is done and accesses a higher account, the higher account will not be blocked by Peter's process since it is currently still waiting on the lower account. So it will complete with the higher account and stop blocking. If it's the higher, then similarly once it is finished, it will release. If Peter then acquires the higher-account, and another process is blocking it, by the same reasoning, it cannot also be blocked by Peter's process.
+
+#+begin_src scheme
+  ;; rewrite ~serialized-exchange~ so that a process will always attempt to enter
+  ;; a procedure protecting the lowest-numbered account first
+
+  (define (serialized-exchange account1 account2)
+    (let ((serializer1 (account1 'serializer))
+          (serializer2 (account2 'serializer))
+          (account1-num (account1 'account-num))
+          (account2-num (account2 'account-num)))
+      ((if (< account1-num account2-num)
+           (serializer1 (serializer2 exchange))
+           (serializer2 (serializer1 exchange)))
+       account1
+       account2)))
+
+  (define (make-account-and-serializer balance)
+    (let ((last-created-account 0))
+      (define (create-account-num)
+        (set! last-created-account (+ last-created-account 1))
+        last-created-account))
+    (define (withdraw amount)
+      (if (>= balance amount)
+          (begin (set! balance (- balance amount))
+                 balance)
+          "Insufficient funds"))
+    (define (deposit amount)
+      (set! balance (+ balance amount))
+      balance)
+    (let ((balance-serializer (make-serializer))
+          (account-num (create-account-num)))
+      (define (dispatch m)
+        (cond ((eq? m 'withdraw) withdraw)
+              ((eq? m 'deposit) deposit)
+              ((eq? m 'balance) balance)
+              ((eq? m 'serializer) balance-serializer)
+              ((eq? m 'account-num) account-num)
+              (else (error "Unknown request -- MAKE-ACCOUNT"
+                           m))))
+      dispatch))
+#+end_src
+
+*Exercise 3.49*. Give a scenario where the deadlock-avoidance mechanism described above does not work.  (Hint: In the exchange problem, each process knows in advance which accounts it will need to get access to.  Consider a situation where a process must get access to some shared resources before it can know which additional shared resources it will require.)
+  * ???
+***** Concurrency, time, and communication
+Serialization as described here requires examining a global shared flat at arbitrary times, which can be inefficient on modern processors.
+*** 3.5 Streams
+So far we've modeled real-world phenomena in a straightforward way: real-world objects with local state are modeled by local variables; time variation in the real world with time variation in the computer. Another way is using streams, which have the ability to model infinite sequences without assignment or mutable data.
+**** 3.5.1 Streams Are Delayed Lists
+Streams allow one to use sequence manipulations without incurring the costs of manipulating sequences as lists. The basic idea is to construct a stream partially until the consumer needs more of the stream, in which case more is created.
+
+#+NAME: streams
+#+begin_src scheme
+  (define (stream-ref s n)
+    (if (= n 0)
+        (stream-car s)
+        (stream-ref (stream-cdr s) (- n 1))))
+
+  (define (stream-map proc s)
+    (if (stream-null? s)
+        the-empty-stream
+        (stream-cons (proc (stream-car s))
+                     (stream-map proc (stream-cdr s)))))
+#+end_src
+
+#+NAME: display_stream
+#+begin_src scheme
+  (define (stream-for-each proc s)
+    (if (stream-null? s)
+        'done
+        (begin (proc (stream-car s))
+               (stream-for-each proc (stream-cdr s)))))
+
+  (define (display-stream s)
+    (stream-for-each display-line s))
+
+  (define (display-line x)
+    (newline)
+    (display x))
+#+end_src
+
+This implementation of streams is based on the special form ~delay~, which creates a "delayed object" that we can think of as a "promise" to evaluate an expression at a future time. The companion to delay is ~force~, that takes a delayed object and performs the evaluation.
+
+~cons-stream~ is a special form defined so that
+
+#+begin_src scheme
+  (cons-stream <A> <B>)
+#+end_src
+
+is equivalent to
+
+#+begin_src scheme
+  (cons <A> (delay <B>))
+#+end_src
+
+#+NAME: stream_cons
+#+begin_src scheme
+  (define (cons-stream a b)
+    (cons a (my-delay b)))
+#+end_src
+
+#+NAME: stream_cr
+#+begin_src scheme
+  (define (stream-car stream) (car stream))
+
+  (define (stream-cdr stream) (my-force (cdr stream)))
+#+end_src
+
+#+NAME: stream_null
+#+begin_src scheme
+  (define the-empty-stream #nil)
+
+  (define (stream-null? str) (null? str))
+#+end_src
+***** The stream implementation in action
+We trace how this is evaluated, and how this avoids creating the wasteful overhead that ~enumerate-interval~ did.
+
+#+begin_src scheme
+  (stream-car
+   (stream-cdr
+    (stream-filter prime?
+                   (stream-enumerate-interval 10000 1000000))))
+#+end_src
+
+#+NAME: stream_enumerate_interval
+#+begin_src scheme
+  (define (stream-enumerate-interval low high)
+    (if (> low high)
+        the-empty-stream
+        (cons-stream
+         low
+         (stream-enumerate-interval (+ low 1) high))))
+#+end_src
+
+When called with 1000 and 1000000, this is equivalent to:
+
+#+begin_src scheme
+  (cons 10000
+        (delay (stream-enumerate-interval 10001 1000000)))
+#+end_src
+
+#+NAME: stream_filter
+#+begin_src scheme
+  (define (stream-filter pred stream)
+    (cond ((stream-null? stream) the-empty-stream)
+          ((pred (stream-car stream))
+           (cons-stream (stream-car stream)
+                        (stream-filter pred
+                                       (stream-cdr stream))))
+          (else (stream-filter pred (stream-cdr stream)))))
+#+end_src
+
+The original expression, ~stream-filter~ tests the ~stream-car~ (which is not prime), and then calls ~stream-cdr~, which forces evaluation of the delayed ~stream-enumerate-interval~.
+
+#+begin_src scheme
+  (cons 10001
+        (delay (stream-enumerate-interval 10002 1000000)))
+#+end_src
+
+This continues until we get to the prime 10,007, at which point we have
+
+#+begin_src scheme
+  (cons 10007
+        (delay
+          (stream-filter
+           prime?
+           (cons 10008
+                 (delay
+                   (stream-enumerate-interval 10009
+                                              1000000))))))
+#+end_src
+
+This is passed to ~stream-cdr~, which discards 10007 and forces evaluation of the delay, and ultimately yields
+
+#+begin_src scheme
+  (cons 10009
+        (delay
+          (stream-filter
+           prime?
+           (cons 10010
+                 (delay
+                   (stream-enumerate-interval 10011
+                                              1000000))))))
+#+end_src
+
+~stream-car~ then yields 1009, after only requiring ~stream-enumerate-interval~ to evaluate a result 10 times (instead of much more in the non-stream case).
+
+We can think of delayed evaluation as "demand-driven" programming.
+***** Implementing ~delay~ and ~force~
+~delay~ is simple to implement, as it only needs to package an expression, so it is syntactic sugar for
+
+#+begin_src scheme
+  (lambda () <EXP>)
+#+end_src
+
+~force~ also is relatively simple, as it just needs to call the procedure produced by ~delay~
+
+#+NAME: stream_force
+#+begin_src scheme
+  (define (my-force delayed-object)
+    (delayed-object))
+#+end_src
+
+To avoid inefficiency, we can memoize forced procedures, which involves implementing delay as a special-purpose memoized procedure.
+
+#+NAME: stream_delay
+#+begin_src scheme
+  (define (memo-proc proc)
+    (let ((already-run? #f) (result #f))
+      (lambda ()
+        (if (not already-run?)
+            (begin (set! result (proc))
+                   (set! already-run? #t)
+                   result)
+            result))))
+  (define (my-delay expr) (memo-proc (lambda () expr)))
+#+end_src
+
+*Exercise 3.50*. Complete the following definition, which generalizes ~stream-map~ to allow procedures that take multiple arguments, analogous to ~map~ in section 2-2-3, Footnote 12.
+
+#+NAME: stream_map
+#+begin_src scheme
+  (define (stream-map proc . argstreams)
+    (if (stream-null? (car argstreams))
+        the-empty-stream
+        (cons-stream
+         (apply proc (map stream-car argstreams))
+         (apply stream-map
+                (cons proc (map stream-cdr argstreams))))))
+#+end_src
+
+*Exercise 3.51*. In order to take a closer look at delayed evaluation, we will use the following procedure, which simply returns its argument after printing it:
+
+#+NAME: show
+#+begin_src scheme
+  (define (show x)
+    (display-line x)
+    x)
+#+end_src
+
+What does the interpreter print in response to evaluating each expression in the following sequence?
+
+#+begin_src scheme :results output replace
+  <<stream_package>>
+  <<show>>
+  (define x (stream-map show (stream-enumerate-interval 0 10)))
+
+  (stream-ref x 5)
+
+  (stream-ref x 7)
+#+end_src
+
+#+RESULTS:
+: "An error occurred."
+
+
+(stream-map show (stream-enumerate-interval 0 10))
+(cons-stream (show (stream-car (s-e-i 0 10)))
+ (stream-map show (stream-cdr (s-e-i 0 10))))
+(cons (show 0) (delay (stream-map show (force (cdr (s-e-i 0 10))))))
+# 0
+(cons 0 (delay (stream-map show (force (cdr (cons-stream 0 (s-e-i 1 10)))))))
+(cons 0 (delay (stream-map show (force (cdr (cons 0 (delay (s-e-i 1 10))))))))
+(cons 0 (delay (stream-map show (force (delay (s-e-i 1 10))))))
+(cons 0 (delay (stream-map show (s-e-i 1 10))))
+...
+# 1
+...
+(cons 0 (delay (cons 1 (delay (stream-map show (s-e-i 1 10))))))
+...
+# 2
+# ...
+# 10
+
+  * This returns (cons 0 (delay (cons 1 (delay (...)))))
+
+(stream-ref x 5)
+(stream-ref (cons 0 (delay (cons 1 (delay (...))))) 5)
+(stream-ref (stream-cdr (cons 0 (delay (cons 1 (delay (...)))))) 4)
+...
+(stream-ref (stream-cdr (cons 1 (delay (...)))) 3)
+...
+(stream-ref (stream-cdr (cons 4 (delay (...)))) 0)
+(stream-car (stream-cdr (cons 4 (delay (...)))))
+...
+5
+
+(stream-ref x 7)
+...
+7
+
+#+NAME: stream_package
+#+begin_src scheme
+<<streams>>
+<<stream_cons>>
+<<stream_null>>
+<<stream_cr>>
+<<stream_enumerate_interval>>
+<<stream_filter>>
+<<stream_force>>
+<<stream_delay>>
+<<stream_map>>
+#+end_src
+
+
+*Exercise 3.52*. Consider the sequence of expressions
+
+#+begin_src scheme :results replace output
+  <<stream_package>>
+  (define sum 0)
+
+  (define (accum x)
+    (set! sum (+ x sum))
+    sum)
+
+  (define seq (stream-map accum (stream-enumerate-interval 1 20)))
+  (define y (stream-filter even? seq))
+  (define z (stream-filter (lambda (x) (= (remainder x 5) 0))
+                           seq))
+
+  (stream-ref y 7)
+
+  (display-stream z)
+#+end_src
+
+#+RESULTS:
+: "An error occurred."
+
+What is the value of ~sum~ after each of the above expressions is evaluated?  What is the printed response to evaluating the ~stream-ref~ and ~display-stream~ expressions?  Would these responses differ if we had implemented ~(delay <EXP>)~ simply as ~(lambda () <EXP>)~ without using the optimization provided by ~memo-proc~?  Explain
+
+0
+# (stream-ref y 7)
+# (stream-ref (stream-filter even? (stream-map accum (stream-enumerate-interval 1 20))) 7)
+# (stream-ref (stream-filter even? (cons-stream (accum 1) (stream-map accum (s-e-i 2 20)))) 7)
+1
+# (stream-ref (stream-filter even? (cons 1 (delay (stream-map accum (s-e-i 2 20))))) 7)
+# (stream-ref (stream-filter even? (stream-cdr (delay (stream-map accum (s-e-i 2 20))))) 7)
+# (stream-ref (stream-filter even? (stream-map accum (s-e-i 2 20))) 7)
+# ...
+3
+6
+# ...
+# (stream-ref (cons-stream 6 (stream-filter even? (stream-map accum (s-e-i 4 20)))) 7)
+# (stream-ref (cons 6 (delay ...)) 7)
+# (stream-ref (stream-cdr ...) 6)
+# (stream-ref (force (delay ...)) 6)
+# (stream-ref (stream-filter even? (stream-map accum (s-e-i 4 20))) 6)
+# ...
+# (4 6)
+10 (5 5)
+15
+21
+28 (8 4)
+36 (9 3)
+45
+55
+66 (12 2)
+78 (13 1)
+# (stream-ref (cons-stream 78 (stream-filter even? (stream-map accum (s-e-i 13 20)))) 1)
+# (stream-ref (stream-filter even? (stream-map accum (s-e-i 13 20))) 0)
+# (stream-car (stream-filter even? (cons-stream (accum 13) (stream-map accum (s-e-i 14 20)))))
+91
+# (stream-car (stream-filter even? (stream-map accum (s-e-i 14 20))))
+105
+#
+120
+# (stream-car (cons 120 (delay (s-e-i ))))
+returns 120
+
+(stream-for-each display-line
+                 (stream-filter (lambda (x) (= (remainder x 5) 0))
+                                seq))
+                                # (stream-map accum (stream-enumerate-interval 1 20))
+(stream-for-each display-line
+                 (stream-filter (lambda ...)
+                                (1 3 6 10 15 21 28 36 45 55 66 78 91 105 120 (delay (stream-map accum (s-e-i 15 20))))))
+  * it will display all the numbers (in parentheses) in the original series that are cached (but not set ~sum~ to anything yet):
+    1 3 6 (10) (15) 21 28 36 (45) (55) 66 78 91 (105) (120)
+  * then it will set ~sum~ to all of (and display in parentheses):
+    136 153 171 (190) (110)
+**** 3.5.2 Infinite Streams
+We can use sequences to represent streams that are infinitely long.
+
+For instance:
+
+#+NAME: integers
+#+begin_src scheme
+  (use-modules (srfi srfi-41))
+  (define (integers-starting-from n)
+    (stream-cons n (integers-starting-from (+ n 1))))
+
+  (define integers (integers-starting-from 1))
+  (define (divisible? x y) (= (remainder x y) 0))
+#+end_src
+
+#+NAME: sevens
+#+begin_src scheme
+  <<integers>>
+
+  (define no-sevens
+    (stream-filter (lambda (x) (not (divisible? x 7)))
+                   integers))
+#+end_src
+
+#+begin_src scheme
+  <<sevens>>
+  (stream-ref no-sevens 100)
+#+end_src
+
+#+begin_src scheme
+  (define (fibgen a b)
+    (cons-stream a (fibgen b (+ a b))))
+
+  (define fibs (fibgen 0 1))
+#+end_src
+
+An interesting application is the "sieve of Eratosthenes". Start with the first prime number, 2, filter out all multiples of it, take the beginning of the next part of the stream (3), and repeat the filter.
+
+#+NAME: primes
+#+begin_src scheme
+  <<integers>>
+  (define (sieve stream)
+    (stream-cons
+     (stream-car stream)
+     (sieve (stream-filter
+             (lambda (x)
+               (not (divisible? x (stream-car stream))))
+             (stream-cdr stream)))))
+
+  (define primes (sieve (integers-starting-from 2)))
+#+end_src
+
+#+begin_src scheme
+  <<primes>>
+  (stream-ref primes 50)
+#+end_src
+***** Defining streams implicitly
+Similar to recursive procedures, we can define streams implicitly.
+#+NAME: ones
+#+begin_src scheme
+  (define ones (stream-cons 1 ones))
+#+end_src
+
+#+NAME: stream_ops
+#+begin_src scheme
+  (use-modules (srfi srfi-41))
+  (define (add-streams s1 s2)
+    (stream-map + s1 s2))
+
+  (define (scale-stream stream factor)
+    (stream-map (lambda (x) (* x factor)) stream))
+#+end_src
+
+#+NAME: integers
+#+begin_src scheme
+  <<stream_ops>>
+  <<ones>>
+  (define integers (stream-cons 1 (add-streams ones integers)))
+
+  (define fibs
+    (stream-cons 0
+                 (stream-cons 1
+                              (add-streams (stream-cdr fibs)
+                                           fibs))))
+#+end_src
+
+*Exercise 3.53*. Without running the program, describe the elements of the stream defined by
+
+#+begin_src scheme
+  (define s (stream-cons 1 (add-streams s s)))
+#+end_src
+
+1 2 4 8  ... = s
+2 4 8 16 ... = add-streams s s
+
+  * '(1 2 4 8 ...)
+
+*Exercise 3.54*. Define a procedure ~mul-streams~, analogous to ~add-streams~, that produces the elementwise product of its two input streams.  Use this together with the stream of ~integers~ to complete the following definition of the stream whose nth element (counting from 0) is n + 1 factorial:
+
+#+begin_src scheme
+  (define factorials (stream-cons 1 (mul-streams <??> <??>)))
+#+end_src
+
+#+NAME: mul_streams
+#+begin_src scheme
+(define (mul-streams s1 s2) (stream-map * s1 s2))
+#+end_src
+
+#+NAME: factorials
+#+begin_src scheme
+  <<integers>>
+  <<mul_streams>>
+  (define factorials (stream-cons 1 (mul-streams factorials integers)))
+#+end_src
+
+#+NAME: stream_refs
+#+begin_src scheme
+  (define (stream-refs s n)
+    (if (= n 0)
+        #nil
+        (cons (stream-car s)
+              (stream-refs (stream-cdr s) (- n 1)))))
+#+end_src
+
+#+begin_src scheme
+  <<factorials>>
+  (map (lambda (i) (stream-ref factorials i))
+       (list 1 2 3 4 5))
+#+end_src
+
+*Exercise 3.55*. Define a procedure ~partial-sums~ that takes as argument a stream S and returns the stream whose elements are S_0, S_0 + S_1, S_0 + S_1 + S_2, ....  For example, ~(partial-sums integers)~ should be the stream 1, 3, 6, 10, 15, ....
+
+#+NAME: partial_sums
+#+begin_src scheme
+  <<stream_ops>>
+  (define (partial-sums s)
+    (add-streams s (stream-cons 0 (partial-sums s))))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<partial_sums>>
+  <<stream_refs>>
+  <<integers>>
+  (stream-refs (partial-sums integers) '(0 1 2 3 4))
+#+end_src
+
+#+RESULTS:
+: (1 3 6 10 15)
+
+*Exercise 3.56*. A famous problem, first raised by R. Hamming, is to enumerate, in ascending order with no repetitions, all positive integers with no prime factors other than 2, 3, or 5.  One obvious way to do this is to simply test each integer in turn to see whether it has any factors other than 2, 3, and 5.  But this is very inefficient, since, as the integers get larger, fewer and fewer of them fit the requirement.  As an alternative, let us call the required stream of numbers ~S~ and notice the following facts about it.
+
+ * ~S~ begins with 1.
+
+ * The elements of ~(scale-stream S 2)~ are also elements of ~S~.
+
+ * The same is true for ~(scale-stream S 3)~ and ~(scale-stream 5 S)~.
+
+  * These are all the elements of ~S~.
+
+Now all we have to do is combine elements from these sources.  For this we define a procedure ~merge~ that combines two ordered streams into one ordered result stream, eliminating repetitions:
+
+#+NAME: merge_stream
+#+begin_src scheme
+  (define (merge-stream s1 s2)
+    (cond ((stream-null? s1) s2)
+          ((stream-null? s2) s1)
+          (else
+           (let ((s1car (stream-car s1))
+                 (s2car (stream-car s2)))
+             (cond ((< s1car s2car)
+                    (stream-cons s1car (merge-stream (stream-cdr s1) s2)))
+                   ((> s1car s2car)
+                    (stream-cons s2car (merge-stream s1 (stream-cdr s2))))
+                   (else
+                    (stream-cons s1car
+                                 (merge-stream (stream-cdr s1)
+                                               (stream-cdr s2)))))))))
+#+end_src
+
+Then the required stream may be constructed with ~merge~, as follows:
+
+#+begin_src scheme
+  (define S (cons-stream 1 (merge <??> <??>)))
+#+end_src
+
+Fill in the missing expressions in the places marked <??> above.
+
+#+begin_src scheme :results replace
+  <<stream_ops>>
+  <<stream_refs>>
+  <<merge_stream>>
+  (define S (stream-cons
+             1 (merge-stream (scale-stream S 2)
+                             (merge-stream (scale-stream S 3)
+                                           (scale-stream S 5)))))
+  (stream-refs S 15)
+#+end_src
+
+#+RESULTS:
+: (1 2 3 4 5 6 8 9 10 12 15 16 18 20 24)
+
+*Exercise 3.57*. How many additions are performed when we compute the nth Fibonacci number using the definition of ~fibs~ based on the ~add-streams~ procedure?  Show that the number of additions would be exponentially greater if we had implemented ~(delay <EXP>)~ simply as ~(lambda () <EXP>)~, without using the optimization provided by the ~memo-proc~ procedure described in section 3-5-1.
+
+  * for n = 1; 0 additions
+  * for n = 2; 0 additions
+  * for n = 3; 1 addition # calls add-streams on first element
+  * for n = 4; 1 + 1 (recompute n = 3)
+  * for n = 5; fibs(5) = fibs(4) + fibs(3); (2 add.) + (1 add.) + 1
+  * for n = 6; fibs(6) = fibs(5) + fibs(4); (4) + (2) + 1
+  * for n = 7; (7) + (4) + 1
+  *         8; (12) + (7) + 1
+  * ...
+
+*Exercise 3.58*. Give an interpretation of the stream computed by the following procedure:
+
+#+NAME: expand
+#+begin_src scheme
+  <<stream_ops>>
+  (define (expand num den radix)
+    (stream-cons
+     (quotient (* num radix) den)
+     (expand (remainder (* num radix) den) den radix)))
+#+end_src
+
+(~quotient~ is a primitive that returns the integer quotient of two integers.)  What are the successive elements produced by ~(expand 1 7 10)~?  What is produced by ~(expand 3 8 10)~?
+
+  * this computes the decimal (<radix>-al) representation of the rational defined by num and den integers
+  * (1 4 2 8 5 7 1 <repeat> ...)
+  * (3 7 5 0 0 0 ...)
+
+#+begin_src scheme :results replace
+  <<expand>>
+  <<stream_refs>>
+  (list (stream-refs (expand 1 7 10) 10)
+        (stream-refs (expand 3 8 10) 10))
+#+end_src
+
+#+RESULTS:
+: ((1 4 2 8 5 7 1 4 2 8) (3 7 5 0 0 0 0 0 0 0))
+
+*Exercise 3.59*. In section 2-5-3:: we saw how to implement a polynomial arithmetic system representing polynomials as lists of terms.  In a similar way, we can work with "power series", such as
+
+                         x^2     x^3       x^4
+          e^x = 1 + x + ----- + ----- + --------- + ...
+                          2     3 * 2   4 * 3 * 2
+
+                       x^2       x^4
+          cos x = 1 - ----- + --------- - ...
+                        2     4 * 3 * 2
+
+                       x^3         x^5
+          sin x = x - ----- + ------------- - ...
+                      3 * 2   5 * 4 * 3 * 2
+
+represented as infinite streams.  We will represent the series a_0 + a_1 x + a_2 x^2 + a_3 x^3 + ... as the stream whose elements are the coefficients a_0, a_1, a_2, a_3, ....
+
+a. The integral of the series a_0 + a_1 x + a_2 x^2 + a_3 x^3 + ... is the series
+
+                            1             1             1
+               c + a_0 x + --- x_1 r^2 + --- a_2 r^3 + --- a_3 r^4 + ...
+                            2             3             4
+
+where c is any constant.  Define a procedure ~integrate-series~ that takes as input a stream a_0, a_1, a_2, ... representing a power series and returns the stream a_0, (1/2)a_1, (1/3)a_2, ... of coefficients of the non-constant terms of the integral of the series.  (Since the result has no constant term, it doesn't represent a power series; when we use ~integrate-series~, we will ~cons~ on the appropriate constant.)
+
+#+NAME: integrate_series
+#+begin_src scheme
+  <<stream_ops>>
+  <<integers>>
+  (define (div-streams s1 s2) (stream-map / s1 s2))
+
+  (define (integrate-series s)
+    (div-streams s integers))
+#+end_src
+
+b. The function x |-> e^x is its own derivative.  This implies that e^x and the integral of e^x are the same series, except for the constant term, which is e^0 = 1.  Accordingly, we can generate the series for e^x as
+
+#+NAME: exp_series
+#+begin_src scheme
+  <<integrate_series>>
+  (define exp-series
+    (stream-cons 1 (integrate-series exp-series)))
+#+end_src
+
+#+begin_src scheme :results replace
+<<exp_series>>
+<<stream_refs>>
+(stream-refs exp-series 10)
+#+end_src
+
+#+RESULTS:
+: (1 1 1/2 1/6 1/24 1/120 1/720 1/5040 1/40320 1/362880)
+
+Show how to generate the series for sine and cosine, starting from the facts that the derivative of sine is cosine and the derivative of cosine is the negative of sine:
+
+#+NAME: trig_series
+#+begin_src scheme
+  <<integrate_series>>
+  (define cosine-series
+    (stream-cons 1 (integrate-series (scale-stream sine-series -1))))
+
+  (define sine-series
+    (stream-cons 0 (integrate-series cosine-series)))
+#+end_src
+
+#+begin_src scheme :results replace
+<<integrate_series>>
+<<trig_series>>
+<<stream_refs>>
+(list (stream-refs sine-series 10)
+      (stream-refs cosine-series 10))
+#+end_src
+
+#+RESULTS:
+: ((0 1 0 -1/6 0 1/120 0 -1/5040 0 1/362880) (1 0 -1/2 0 1/24 0 -1/720 0 1/40320 0))
+
+*Exercise 3.60*. With power series represented as streams of coefficients as in *Note Exercise 3-59, adding series is implemented by ~add-streams~.  Complete the definition of the following procedure for multiplying series:
+
+#+NAME: mul_series
+#+begin_src scheme
+  <<stream_ops>>
+  ;; Note, we use this identity
+  ;; (a_0 + a_1x + a_2x^2 + ..) (b_0 + b_1x + b_2x^2 + ..) =
+  ;; a_0a_1 + a_0x(b_1 + b_2x + ...) +
+  ;;    x(a_2 + a_3x + ..)(b_1 + b_2x + ...)
+  (define (mul-series s1 s2)
+    (stream-cons (* (stream-car s1) (stream-car s2))
+                 (add-streams
+                  (scale-stream (stream-cdr s2) (stream-car s1))
+                  (mul-series (stream-cdr s1) s2))))
+#+end_src
+
+You can test your procedure by verifying that sin^2 x + cos^2 x = 1, using the series from Exercise 3-59.
+
+#+begin_src scheme :results replace
+  <<trig_series>>
+  <<mul_series>>
+  <<stream_refs>>
+  (stream-refs (add-streams (mul-series sine-series sine-series)
+                            (mul-series cosine-series cosine-series)) 10)
+#+end_src
+
+#+RESULTS:
+: (1 0 0 0 0 0 0 0 0 0)
+
+*Exercise 3.61*. Let S be a power series (*Note Exercise 3-59::) whose constant term is 1.  Suppose we want to find the power series 1/S, that is, the series X such that S * X = 1.  Write S = 1 + S_R where S_R is the part of S after the constant term.  Then we can solve for X as follows:
+
+                  S * X = 1
+          (1 + S_R) * X = 1
+            X + S_R * X = 1
+                      X = 1 - S_R * X
+
+In other words, X is the power series whose constant term is 1 and whose higher-order terms are given by the negative of S_R times X. Use this idea to write a procedure ~invert-unit-series~ that computes 1/S for a power series S with constant term 1.  You will need to use ~mul-series~ from *Note Exercise 3-60.
+
+#+NAME: invert_series
+#+begin_src scheme
+  <<mul_series>>
+  (define zeros (stream-cons 0 zeros))
+  (define (invert-unit-series s)
+    (stream-cons 1 (scale-stream
+                    (mul-series (stream-cdr s)
+                                (invert-unit-series s))
+                    -1)))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<invert_series>>
+  <<stream_refs>>
+  <<trig_series>>
+  (let* ((x-series (stream-cons 1 (stream-cons 0 (stream-cons 1 zeros))))
+         (inv-x-series (invert-unit-series x-series))
+         (test-mul-series (mul-series inv-x-series x-series)))
+    (list (stream-refs x-series 10)
+          (stream-refs inv-x-series 10)
+          (stream-refs test-mul-series 10)))
+#+end_src
+
+#+RESULTS:
+: ((1 0 1 0 0 0 0 0 0 0) (1 0 -1 0 1 0 -1 0 1 0) (1 0 0 0 0 0 0 0 0 0))
+
+*Exercise 3.62*. Use the results of Exercise 3-60:: and Exercise 3-61:: to define a procedure ~div-series~ that divides two power series.  ~Div-series~ should work for any two series, provided that the denominator series begins with a nonzero constant term.  (If the denominator has a zero constant term, then ~div-series~ should signal an error.)  Show how to use ~div-series~ together with the result of Exercise 3-59 to generate the power series for tangent.
+
+#+NAME: div_series
+#+begin_src scheme
+  <<invert_series>>
+  (define (div-series s1 s2)
+    (let ((denom-const-term (stream-car s2)))
+      (if (zero? denom-const-term)
+          (error "zero constant term in denominator -- DIV-SERIES")
+          (mul-series s1 (invert-unit-series
+                          (scale-stream s2 (/ 1 denom-const-term)))))))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<div_series>>
+  <<stream_refs>>
+  <<trig_series>>
+  (define tan-series (div-series sine-series cosine-series))
+  (stream-refs tan-series 10)
+#+end_src
+
+#+RESULTS:
+: (0 1 0 1/3 0 2/15 0 17/315 0 62/2835)
+**** 3.5.3 Exploiting the Stream Paradigm
+We can use streams to provide the benefits of local state and assignment without the need for assignment or iteration.
+***** Formulating iterations as stream processes
+We can define our old ~sqrt~ procedure as a "timeless" stream of values.
+
+#+NAME: sqrt_stream
+#+begin_src scheme
+  <<stream_ops>>
+  <<stream_refs>>
+  (define (sqrt-improve guess x)
+    (/ (+ guess (/ x guess)) 2))
+
+  (define (sqrt-stream x)
+    (define guesses
+      (stream-cons 1.0
+                   (stream-map (lambda (guess)
+                                 (sqrt-improve guess x))
+                               guesses)))
+    guesses)
+#+end_src
+
+#+NAME: pi_stream
+#+begin_src scheme
+<<stream_ops>>
+<<partial_sums>>
+(define (pi-summands n)
+  (stream-cons (/ 1.0 n) (stream-map - (pi-summands (+ n 2)))))
+
+(define pi-stream
+  (scale-stream (partial-sums (pi-summands 1)) 4))
+#+end_src
+
+This series converges rather slow. However, streams allow us to define sequence accelerators that converts a sequence to a new one that converges to the same value but faster.
+
+#+NAME: euler
+#+begin_src scheme
+  (define (euler-transform s)
+    (let ((s0 (stream-ref s 0))           ; S_(n-1)
+          (s1 (stream-ref s 1))           ; S_n
+          (s2 (stream-ref s 2)))          ; S_(n+1)
+      (stream-cons (- s2 (/ (expt (- s2 s1) 2)
+                            (+ s0 (* -2 s1) s2)))
+                   (euler-transform (stream-cdr s)))))
+#+end_src
+
+#+begin_src scheme
+  <<pi_stream>>
+  <<euler>>
+  <<stream_refs>>
+  (stream-refs (euler-transform pi-stream) 10)
+#+end_src
+
+You can of course accelerate the accelerated sequence, and recursively accelerate that. This uses a stream of streams, something called a tableau:
+
+#+NAME: tableau
+#+begin_src scheme
+(define (make-tableau transform s)
+  (stream-cons s
+               (make-tableau transform
+                             (transform s))))
+(define (accelerated-sequence transform s)
+  (stream-map stream-car (make-tableau transform s)))
+#+end_src
+
+*Exercise 3.63*. Louis Reasoner asks why the ~sqrt-stream~ procedure was not written in the following more straightforward way, without the local variable ~guesses~:
+
+#+begin_src scheme
+  (define (sqrt-stream x)
+    (cons-stream 1.0
+                 (stream-map (lambda (guess)
+                               (sqrt-improve guess x))
+                             (sqrt-stream x))))
+#+end_src
+
+Alyssa P. Hacker replies that this version of the procedure is considerably less efficient because it performs redundant computation.  Explain Alyssa's answer.  Would the two versions still differ in efficiency if our implementation of ~delay~ used only ~(lambda () <EXP>)~ without using the optimization provided by ~memo-proc~ (section 3-5-1)?
+
+  * in this case the expression that is ~delay~ 'ed contains ~(sqrt-stream x)~, which is not yet defined when it is first called, so it is called twice each time, unlike with ~guesses~
+  * ???
+
+*Exercise 3.64*. Write a procedure ~stream-limit~ that takes as arguments a stream and a number (the tolerance).  It should examine the stream until it finds two successive elements that differ in absolute value by less than the tolerance, and return the second of the two elements.  Using this, we could compute square roots up to a given tolerance by
+
+#+NAME: sqrt_limit
+#+begin_src scheme
+  <<stream_limit>>
+  <<sqrt_stream>>
+  (define (sqrt-limit x tolerance)
+    (stream-limit (sqrt-stream x) tolerance))
+#+end_src
+
+#+NAME: stream_limit
+#+begin_src scheme
+  <<stream_ops>>
+  (define (stream-limit s tolerance)
+    (let ((str-cdr (stream-cdr s)))
+      (let ((str-cadr (stream-car str-cdr)))
+        (if (< (abs (- (stream-car s) str-cadr)) tolerance)
+            str-cadr
+            (stream-limit str-cdr tolerance)))))
+#+end_src
+
+#+begin_src scheme
+  <<stream_limit>>
+  <<stream_refs>>
+  <<sqrt_limit>>
+  (list (sqrt-limit 3 0.5) (sqrt-limit 3 1e-10))
+#+end_src
+
+*Exercise 3.65*. Use the series
+
+                      1     1     1
+          kn 2 = 1 - --- + --- - --- + ...
+                      2     3     4
+
+to compute three sequences of approximations to the natural logarithm of 2, in the same way we did above for [pi].  How rapidly do these sequences converge?
+
+#+NAME: log_stream
+#+begin_src scheme :results replace
+  <<stream_ops>>
+  <<partial_sums>>
+  <<stream_refs>>
+  <<euler>>
+  <<tableau>>
+
+  (define (log-summands n)
+    (stream-cons (/ 1.0 n) (stream-map - (log-summands (+ n 1)))))
+
+  (define log-stream
+    (partial-sums (log-summands 1)))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<log_stream>>
+  (define (in-range a b tolerance)
+    (< (abs (- a b)) tolerance))
+
+  (define (stream-limit-info s tolerance)
+    (define (iter s-i n)
+      (let ((str-cdr (stream-cdr s-i)))
+        (let ((str-cadr (stream-car str-cdr)))
+          (if (in-range (stream-car s-i) str-cadr tolerance)
+              (list n str-cadr)
+              (iter str-cdr (+ n 1))))))
+    (iter s 0))
+
+  ;; returns a pair of the position the tolerance was reached at,
+  ;; and the value
+  (list (map (lambda (s) (stream-limit-info s 1e-3))
+             (list log-stream
+                   (euler-transform log-stream)
+                   (accelerated-sequence euler-transform log-stream)))
+        (map (lambda (s) (stream-limit-info s 1e-6))
+             (list (euler-transform log-stream)
+                   (accelerated-sequence euler-transform log-stream))))
+#+end_src
+
+#+RESULTS:
+: (((999 0.6936464315588232) (4 0.6928571428571428) (2 0.6931488693329254)) ((60 0.6931466925212173) (4 0.6931471806635636)))
+***** Infinite streams of pairs
+If we want to generate an infinite stream of pairs, say int pairs, we may run into a problem if we do not enumerate them properly. For instance if we simply append two infinite streams, we will never reach the elements in the second stream. One way to solve this is with interleaving.
+
+#+NAME: interleave
+#+begin_src scheme
+  <<stream_ops>>
+  (define (interleave s1 s2)
+    (if (stream-null? s1)
+        s2
+        (stream-cons (stream-car s1)
+                     (interleave s2 (stream-cdr s1)))))
+#+end_src
+
+#+NAME: pairs
+#+begin_src scheme
+  <<stream_ops>>
+  <<interleave>>
+  (define (pairs s t)
+    (stream-cons
+     (list (stream-car s) (stream-car t))
+     (interleave
+      (stream-map (lambda (x) (list (stream-car s) x))
+                  (stream-cdr t))
+      (pairs (stream-cdr s) (stream-cdr t)))))
+#+end_src
+
+*Exercise 3.66*. Examine the stream ~(pairs integers integers)~. Can you make any general comments about the order in which the pairs are placed into the stream? For example, about how many pairs precede the pair (1,100)?  the pair (99,100)? the pair (100,100)? (If you can make precise mathematical statements here, all the better. But feel free to give more qualitative answers if you find yourself getting bogged down.)
+
+#+begin_src scheme :results replace
+<<integers>>
+<<interleave>>
+<<pairs>>
+<<stream_refs>>
+(stream-refs (pairs integers integers) 15)
+#+end_src
+
+#+RESULTS:
+: ((1 1) (1 2) (2 2) (1 3) (2 3) (1 4) (3 3) (1 5) (2 4) (1 6) (3 4) (1 7) (2 5) (1 8) (4 4))
+
+
+  * the (1, _) pairs start at position 1 (2^i - 1), the next comes at pos 1 + 1 (p_1 + 2^(i - 1)), and the rest every 2 (2^i) positions afterwards
+  * the (2, _) pairs start at position 3 (2^i - 1), the next comes at position 3 + 2 (p_1 + 2^(i - 1)), and the rest every 4 (2^i)positions after that
+  * the (3, _) pairs start at position 7 (2^i - 1), the next at position 7 + 4 (p_1 + 2^(i - 1)), and the rest every 8 (2^i)
+
+  * the (n, _) pairs start at position 2^i - 1, the next at position p_1 + 2^(i - 1), and the rest every 2^i positions after that
+
+*Exercise 3.67*. Modify the ~pairs~ procedure so that ~(pairs integers integers)~ will produce the stream of _all_ pairs of integers (i,j) (without the condition i <= j).  Hint: You will need to mix in an additional stream.
+
+#+begin_src scheme
+  <<stream_ops>>
+  <<interleave>>
+  <<stream_refs>>
+  <<integers>>
+  (define (pairs-all s t)
+    (stream-cons
+     (list (stream-car s) (stream-car t))
+     (interleave
+      (interleave
+       (stream-map (lambda (x) (list (stream-car s) x))
+                   (stream-cdr t))
+       (stream-map (lambda (x) (list x (stream-car s)))
+                   (stream-cdr t)))
+      (pairs-all (stream-cdr s) (stream-cdr t)))))
+#+end_src
+
+*Exercise 3.68*. Louis Reasoner thinks that building a stream of pairs from three parts is unnecessarily complicated.  Instead of separating the pair (S_0,T_0) from the rest of the pairs in the first row, he proposes to work with the whole first row, as follows:
+
+#+begin_src scheme
+  (define (pairs s t)
+    (interleave
+     (stream-map (lambda (x) (list (stream-car s) x))
+                 t)
+     (pairs (stream-cdr s) (stream-cdr t))))
+#+end_src
+
+Does this work?  Consider what happens if we evaluate ~(pairs integers integers)~ using Louis's definition of ~pairs~.
+
+# (pairs integers integers)
+# (interleave (stream-map (lambda (x) (list 1 x)) t)
+#             (pairs (stream-cdr integers) (stream-cdr integers)))
+# (interleave (stream-map (lambda (x) (list 1 x)) t)
+#             (interleave (stream-map (lambda (x) (list 2 x)) (stream-cdr t))
+#                         (pairs (stream-cdr (stream-cdr integers)) (stream-cdr (stream-cdr integers)))))
+# (interleave ... (interleave ...) (interleave ...) (pairs ...))
+# (i ... (i ...) (i ...) (i ...) (pairs ...))
+
+This causes an infinite recursion, as there's nothing to get pairs out of the recursion.
+
+*Exercise 3.69*. Write a procedure ~triples~ that takes three infinite streams, S, T, and U, and produces the stream of triples (S_i,T_j,U_k) such that i <= j <= k.  Use ~triples~ to generate the stream of all Pythagorean triples of positive integers, i.e., the triples (i,j,k) such that i <= j and i^2 + j^2 = k^2.
+
+#+NAME: triples
+#+begin_src scheme
+  <<pairs>>
+  (define (triples s t u)
+    (let ((pairs-t-u (pairs t u)))
+      (stream-cons
+       (cons (stream-car s) (stream-car pairs-t-u))
+       (interleave
+        (stream-map (lambda (x) (cons (stream-car s) x))
+                    (stream-cdr pairs-t-u))
+        (triples (stream-cdr s) (stream-cdr t) (stream-cdr u))))))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<triples>>
+  <<integers>>
+  <<stream_refs>>
+  (define pythagorean-triples
+    (stream-filter (lambda (x) (= (+ (expt (car x) 2)
+                                     (expt (cadr x) 2))
+                                  (expt (caddr x) 2)))
+                   (triples integers integers integers)))
+  (stream-refs pythagorean-triples 5)
+#+end_src
+
+#+RESULTS:
+: ((3 4 5) (6 8 10) (5 12 13) (9 12 15) (8 15 17))
+
+*Exercise 3.70*. It would be nice to be able to generate streams in which the pairs appear in some useful order, rather than in the order that results from an _ad hoc_ interleaving process.  We can use a technique similar to the ~merge~ procedure of *Note Exercise 3-56, if we define a way to say that one pair of integers is "less than" another.  One way to do this is to define a "weighting function" W(i,j) and stipulate that (i_1,j_1) is less than (i_2,j_2) if W(i_1,j_1) < W(i_2,j_2).
+
+Write a procedure ~merge-weighted~ that is like ~merge~, except that ~merge-weighted~ takes an additional argument ~weight~, which is a procedure that computes the weight of a pair, and is used to determine the order in which elements should appear in the resulting merged stream.(5)  Using this, generalize ~pairs~ to a procedure ~weighted-pairs~ that takes two streams, together with a procedure that computes a weighting function, and generates the stream of pairs, ordered according to weight.  Use your procedure to generate
+
+a. the stream of all pairs of positive integers (i,j) with i <= j ordered according to the sum i + j
+
+b. the stream of all pairs of positive integers (i,j) with i <= j, where neither i nor j is divisible by 2, 3, or 5, and the pairs are ordered according to the sum 2 i + 3 j + 5 i j.
+
+#+NAME: merge_weighted
+#+begin_src scheme
+  <<stream_ops>>
+  (define (merge-weighted s t weight)
+    (cond ((stream-null? s) t)
+          ((stream-null? t) s)
+          (else
+           (let ((s1 (stream-car s))
+                 (t1 (stream-car t)))
+             (let ((ws (weight s1))
+                   (wt (weight t1)))
+               (cond ((<= ws wt)
+                      (stream-cons s1 (merge-weighted (stream-cdr s) t weight)))
+                     (else
+                      (stream-cons t1 (merge-weighted s (stream-cdr t) weight)))))))))
+#+end_src
+
+#+NAME: weighted_pairs
+#+begin_src scheme
+  <<merge_weighted>>
+  (define (weighted-pairs s t weight)
+    (if (or (stream-null? s) (stream-null? t))
+        stream-null
+        (stream-cons
+         (list (stream-car s) (stream-car t))
+         (merge-weighted
+          (stream-map (lambda (x) (list (stream-car s) x)) (stream-cdr t))
+          (weighted-pairs (stream-cdr s) (stream-cdr t) weight)
+          weight))))
+#+end_src
+
+#+begin_src scheme
+  <<weighted_pairs>>
+  <<integers>>
+  (map (lambda (s) (stream->list 20 s))
+       (list (weighted-pairs integers integers (lambda (x) (apply + x)))
+             (let ((nodiv235 (stream-filter
+                              (lambda (x) (not (or (divisible? x 2)
+                                                   (divisible? x 3)
+                                                   (divisible? x 5))))
+                              integers)))
+               (weighted-pairs nodiv235 nodiv235
+                               (lambda (x) (+ (* 2 (car x))
+                                              (* 3 (cadr x))
+                                              (* 5 (car x) (cadr x))))))))
+#+end_src
+
+*Exercise 3.71*. Numbers that can be expressed as the sum of two cubes in more than one way are sometimes called "Ramanujan numbers", in honor of the mathematician Srinivasa Ramanujan.(6) Ordered streams of pairs provide an elegant solution to the problem of computing these numbers.  To find a number that can be written as the sum of two cubes in two different ways, we need only generate the stream of pairs of integers (i,j) weighted according to the sum i^3 + j^3 (see *Note Exercise 3-70), then search the stream for two consecutive pairs with the same weight. Write a procedure to generate the Ramanujan numbers.  The first such number is 1,729.  What are the next five?
+
+#+NAME: ramanujan
+#+begin_src scheme
+  <<stream_ops>>
+  <<integers>>
+  <<weighted_pairs>>
+  (define (sum-cubes x) (+ (expt (car x) 3) (expt (cadr x) 3)))
+
+  (define (consecutive-equals s weight)
+    (let ((s1 (stream-car s))
+          (s2 (stream-car (stream-cdr s))))
+      (if (= (weight s1) (weight s2))
+          (stream-cons (list (weight s1) (list s1 s2)) (consecutive-equals (stream-cdr s) weight))
+          (consecutive-equals (stream-cdr s) weight))))
+
+  (define ramanujan-numbers
+    (let ((pairs-ordered (weighted-pairs integers integers sum-cubes)))
+      (consecutive-equals pairs-ordered sum-cubes)))
+#+end_src
+
+#+begin_src scheme :results replace
+<<ramanujan>>
+(stream->list 5 ramanujan-numbers)
+#+end_src
+
+#+RESULTS:
+: ((1729 ((1 12) (9 10))) (4104 ((2 16) (9 15))) (13832 ((2 24) (18 20))) (20683 ((10 27) (19 24))) (32832 ((4 32) (18 30))))
+
+*Exercise 3.72:* In a similar way to *Note Exercise 3-71:: generate a stream of all numbers that can be written as the sum of two squares in three different ways (showing how they can be so written).
+
+#+begin_src scheme :results replace
+  <<stream_ops>>
+  <<integers>>
+  <<weighted_pairs>>
+  (define (sum-squares x) (+ (expt (car x) 2) (expt (cadr x) 2)))
+
+  (define (three-in-a-row-equals s weight)
+    (let ((s1 (stream-car s))
+          (s2 (stream-car (stream-cdr s)))
+          (s3 (stream-car (stream-cdr (stream-cdr s)))))
+      (if (= (weight s1) (weight s2) (weight s3))
+          (stream-cons (list (weight s1) (list s1 s2 s3))
+                       (three-in-a-row-equals (stream-cdr s) weight))
+          (three-in-a-row-equals (stream-cdr s) weight))))
+
+  (stream->list 5 (three-in-a-row-equals
+                   (weighted-pairs integers integers sum-squares) sum-squares))
+#+end_src
+
+#+RESULTS:
+: ((325 ((1 18) (6 17) (10 15))) (425 ((5 20) (8 19) (13 16))) (650 ((5 25) (11 23) (17 19))) (725 ((7 26) (10 25) (14 23))) (845 ((2 29) (13 26) (19 22))))
+***** Streams as signals
+We can use streams to model signal-processing systems very directly, using the consecutive elements of the stream to represent the values at successive time intervals.
+
+An integrator might be:
+
+#+NAME: integral
+#+begin_src scheme
+  <<stream_ops>>
+  (define (integral integrand initial-value dt)
+    (define int
+      (stream-cons initial-value
+                   (add-streams (scale-stream integrand dt)
+                                int)))
+    int)
+#+end_src
+
+*Exercise 3.73*. We can model electrical circuits using streams to represent the values of currents or voltages at a sequence of times.  For instance, suppose we have an "RC circuit" consisting of a resistor of resistance R and a capacitor of capacitance C in series.  The voltage response v of the circuit to an injected current i is determined by the formula in *Note Figure 3-33::, whose structure is shown by the accompanying signal-flow diagram.
+
+Write a procedure ~RC~ that models this circuit.  ~RC~ should take as inputs the values of R, C, and dt and should return a procedure that takes as inputs a stream representing the current i and an initial value for the capacitor voltage v_0 and produces as output the stream of voltages v.  For example, you should be able to use ~RC~ to model an RC circuit with R = 5 ohms, C = 1 farad, and a 0.5-second time step by evaluating ~(define RC1 (RC 5 1 0.5))~. This defines ~RC1~ as a procedure that takes a stream representing the time sequence of currents and an initial capacitor voltage and produces the output stream of voltages.
+
+#+begin_src scheme
+  <<integral>>
+  (define (RC R C dt)
+    (lambda (i V0)
+      (stream-map (lambda (x) (+ x V0))
+                  (add-streams (scale-stream (integral i 0 dt) (/ 1 C))
+                               (scale-stream i R)))))
+#+end_src
+
+
+*Exercise 3.74*. Alyssa P. Hacker is designing a system to process signals coming from physical sensors.  One important feature she wishes to produce is a signal that describes the "zero crossings" of the input signal.  That is, the resulting signal should be + 1 whenever the input signal changes from negative to positive, - 1 whenever the input signal changes from positive to negative, and 0 otherwise.  (Assume that the sign of a 0 input is positive.)  For example, a typical input signal with its associated zero-crossing signal would be
+
+    ... 1  2  1.5  1  0.5  -0.1  -2  -3  -2  -0.5  0.2  3  4 ...
+    ...  0  0    0  0    0     -1  0   0   0     0    1  0  0 ...
+
+In Alyssa's system, the signal from the sensor is represented as a stream ~sense-data~ and the stream ~zero-crossings~ is the corresponding stream of zero crossings.  Alyssa first writes a procedure ~sign-change-detector~ that takes two values as arguments and compares the signs of the values to produce an appropriate 0, 1, or - 1.  She then constructs her zero-crossing stream as follows:
+
+#+begin_src scheme
+  (define (make-zero-crossings input-stream last-value)
+    (cons-stream
+     (sign-change-detector (stream-car input-stream) last-value)
+     (make-zero-crossings (stream-cdr input-stream)
+                          (stream-car input-stream))))
+
+  (define zero-crossings (make-zero-crossings sense-data 0))
+#+end_src
+
+Alyssa's boss, Eva Lu Ator, walks by and suggests that this program is approximately equivalent to the following one, which uses the generalized version of ~stream-map~ from *Note Exercise 3-50:
+
+#+begin_src scheme
+  (define zero-crossings
+    (stream-map sign-change-detector sense-data <EXPRESSION>))
+#+end_src
+
+Complete the program by supplying the indicated <EXPRESSION>.
+
+#+begin_src scheme
+  (define zero-crossings
+    (stream-map sign-change-detector sense-data
+                (stream-cons last-value sense-data)))
+#+end_src
+
+*Exercise 3.75*. Unfortunately, Alyssa's zero-crossing detector in *Note Exercise 3-74:: proves to be insufficient, because the noisy signal from the sensor leads to spurious zero crossings.  Lem E. Tweakit, a hardware specialist, suggests that Alyssa smooth the signal to filter out the noise before extracting the zero crossings.  Alyssa takes his advice and decides to extract the zero crossings from the signal constructed by averaging each value of the sense data with the previous value.  She explains the problem to her assistant, Louis Reasoner, who attempts to implement the idea, altering Alyssa's program as follows:
+
+#+begin_src scheme
+  (define (make-zero-crossings input-stream last-value)
+    (let ((avpt (/ (+ (stream-car input-stream) last-value) 2)))
+      (cons-stream (sign-change-detector avpt last-value)
+                   (make-zero-crossings (stream-cdr input-stream)
+                                        avpt))))
+#+end_src
+
+This does not correctly implement Alyssa's plan.  Find the bug that Louis has installed and fix it without changing the structure of the program.  (Hint: You will need to increase the number of arguments to ~make-zero-crossings~.)
+
+  * (I think it overweights the early values, since it keeps averaging the last average with the new value.)
+
+#+NAME: make_zero_crossings_bad
+#+begin_src scheme
+  <<stream_ops>>
+  (define (make-zero-crossings input-stream last-value)
+    (let ((avpt (/ (+ (stream-car input-stream) last-value) 2)))
+      (stream-cons (sign-change-detector avpt last-value)
+                   (make-zero-crossings (stream-cdr input-stream)
+                                        avpt))))
+#+end_src
+
+#+NAME: make_zero_crossings
+#+begin_src scheme
+  <<stream_ops>>
+  (define (make-zero-crossings input-stream last-value last-average)
+    (let ((avpt (/ (+ (stream-car input-stream) last-value) 2)))
+      (stream-cons (sign-change-detector avpt last-average)
+                   (make-zero-crossings (stream-cdr input-stream)
+                                        (stream-car input-stream) avpt))))
+#+end_src
+
+#+begin_src scheme
+  <<make_zero_crossings>>
+  (define (sign-change-detector a b)
+    (cond ((and (< a 0) (>= b 0)) -1)
+          ((and (>= a 0) (< b 0)) 1)
+          (else 0)))
+  (define test-stream (stream-unfold identity (lambda (x) #t) (lambda (x) (- (random 10) 5)) 0))
+
+  (make-zero-crossings test-stream 0)
+#+end_src
+
+*Exercise 3.76*. Eva Lu Ator has a criticism of Louis's approach in *Note Exercise 3-75::.  The program he wrote is not modular, because it intermixes the operation of smoothing with the zero-crossing extraction.  For example, the extractor should not have to be changed if Alyssa finds a better way to condition her input signal.  Help Louis by writing a procedure ~smooth~ that takes a stream as input and produces a stream in which each element is the average of two successive input stream elements. Then use ~smooth~ as a component to implement the zero-crossing detector in a more modular style.
+
+#+begin_src scheme
+  (define (smooth s)
+    (stream-map (lambda (x y) (/ (+ x y) 2)) s (stream-cdr s)))
+
+  (define (make-zero-crossings input-stream last-value smoother)
+    (let ((smoothed-input (smoother input-stream))))
+    (stream-map sign-change-detector
+                (stream-cons last-value smoothed-input)
+                smoothed-input))
+#+end_src
+**** 3.5.4 Streams and Delayed Evaluation
+We can use the concept of delayed evaluation beyond the implicit delay in ~stream-cons~. For instance, if we had a computer circuit defined like this:
+
+#+begin_src scheme
+     (define (solve f y0 dt)
+       (define y (integral dy y0 dt))
+       (define dy (stream-map f y))
+       y)
+#+end_src
+
+It wouldn't work as written because ~dy~ is used but not defined in the first line, though the intent makes sense because we can generate the ~y~ stream without knowing ~dy~.
+
+We could redefine ~integral~ to take a "delayed argument".
+
+#+NAME: delayed_integral
+#+begin_src scheme
+  <<stream_ops>>
+  (define (integral delayed-integrand initial-value dt)
+    (define int
+      (stream-cons initial-value
+                   (let ((integrand (force delayed-integrand)))
+                     (add-streams (scale-stream integrand dt)
+                                  int))))
+    int)
+#+end_src
+
+#+NAME: solve_delay
+#+begin_src scheme
+  (define (solve f y0 dt)
+    (define y (integral (delay dy) y0 dt))
+    (define dy (stream-map f y))
+    y)
+#+end_src
+
+#+begin_src scheme :results replace
+  <<delayed_integral>>
+  <<solve_delay>>
+  ;; for some reason in guile you need to call the first before the second, and anything past 926 returns a stack overflow
+  (stream-ref (solve (lambda (y) y) 1 0.001) 1)
+  (stream-ref (solve (lambda (y) y) 1 0.001) 926)
+#+end_src
+
+#+RESULTS:
+: 2.5232236455446273
+
+*Exercise 3.77*. The ~integral~ procedure used above was analogous to the "implicit" definition of the infinite stream of integers in section 3-5-2::.  Alternatively, we can give a definition of ~integral~ that is more like ~integers-starting-from~ (also in section *Note 3-5-2::):
+
+#+begin_src scheme
+  (define (integral integrand initial-value dt)
+    (cons-stream initial-value
+                 (if (stream-null? integrand)
+                     the-empty-stream
+                     (integral (stream-cdr integrand)
+                               (+ (* dt (stream-car integrand))
+                                  initial-value)
+                               dt))))
+#+end_src
+
+When used in systems with loops, this procedure has the same problem as does our original version of ~integral~.  Modify the procedure so that it expects the ~integrand~ as a delayed argument and hence can be used in the ~solve~ procedure shown above.
+
+#+NAME: delayed_integral_2
+#+begin_src scheme
+  <<stream_ops>>
+  (define (integral delayed-integrand initial-value dt)
+    (stream-cons initial-value
+                 (let ((integrand (force delayed-integrand)))
+                   (if (stream-null? integrand)
+                       stream-null
+                       (integral (delay (stream-cdr integrand))
+                                 (+ (* dt (stream-car integrand))
+                                    initial-value)
+                                 dt)))))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<delayed_integral_2>>
+  <<solve_delay>>
+  (stream-ref (solve (lambda (y) y) 1 0.0001) 10000)
+#+end_src
+
+#+RESULTS:
+: 2.7181459268252266
+
+*Exercise 3.78*. Consider the problem of designing a signal-processing system to study the homogeneous second-order linear differential equation
+
+          d^2 y        d y
+          -----  -  a -----  -  by  =  0
+          d t^2        d t
+
+The output stream, modeling y, is generated by a network that contains a loop. This is because the value of d^2y/dt^2 depends upon the values of y and dy/dt and both of these are determined by integrating d^2y/dt^2.  The diagram we would like to encode is shown in *Note Figure 3-35::.  Write a procedure ~solve-2nd~ that takes as arguments the constants a, b, and dt and the initial values y_0 and dy_0 for y and dy/dt and generates the stream of successive values of y.
+
+#+NAME: solve_2nd
+#+begin_src scheme
+  <<stream_ops>>
+  <<delayed_integral_2>>
+  (define (solve-2nd a b dt y0 dy0)
+    (define y (integral (delay dy) y0 dt))
+    (define dy (integral (delay ddy) dy0 dt))
+    (define ddy (add-streams (scale-stream dy a) (scale-stream y b)))
+    y)
+#+end_src
+
+#+begin_src scheme :results replace
+  <<solve_2nd>>
+  (stream-ref (solve-2nd 1 1 0.001 1 0.001) 1000)
+#+end_src
+
+#+RESULTS:
+: 1.7840384284091166
+
+*Exercise 3.79*. Generalize the ~solve-2nd~ procedure of *Note Exercise 3-78 so that it can be used to solve general second-order differential equations d^2 y/dt^2 = f(dy/dt, y).
+
+#+begin_src scheme :results replace
+  <<stream_ops>>
+  <<delayed_integral_2>>
+  (define (solve-2nd f y0 dy0 dt)
+    (define y (integral (delay dy) y0 dt))
+    (define dy (integral (delay ddy) dy0 dt))
+    (define ddy (stream-map f dy y))
+    y)
+
+  (define (old-solve-2nd a b dt y0 dy0)
+    (solve-2nd (lambda (x y) (+ (* a x) (* b y))) y0 dy0 dt))
+
+  (stream-ref (old-solve-2nd 1 1 0.001 1 0.001) 1000)
+#+end_src
+
+#+RESULTS:
+: 1.7840384284091166
+
+*Exercise 3.80*. A "series RLC circuit" consists of a resistor, a capacitor, and an inductor connected in series, as shown in *Note Figure 3-36::.  If R, L, and C are the resistance, inductance, and capacitance, then the relations between voltage (v) and current (i) for the three components are described by the equations
+
+          v_R = i_R R
+
+                   d_(i L)
+          v_L = L ---------
+                     d t
+
+                   d v_C
+          i_C = C -------
+                    d t
+
+and the circuit connections dictate the relations
+
+          i_R = i_L = -i_C
+
+          v_C = v_L + v_R
+
+Combining these equations shows that the state of the circuit (summarized by v_C, the voltage across the capacitor, and i_L, the current in the inductor) is described by the pair of differential equations
+
+          d v_C        i_L
+          -----  =  -  ---
+           d t          C
+
+          d i_L      1           R
+          -----  =  --- v_C  -  --- i_L
+           d t       L           L
+
+The signal-flow diagram representing this system of differential equations is shown in *Note Figure 3-37.
+
+Write a procedure ~RLC~ that takes as arguments the parameters R, L, and C of the circuit and the time increment dt.  In a manner similar to that of the ~RC~ procedure of *Note Exercise 3-73::, ~RLC~ should produce a procedure that takes the initial values of the state variables, v_(C_0) and i_(L_0), and produces a pair (using ~cons~) of the streams of states v_C and i_L.  Using ~RLC~, generate the pair of streams that models the behavior of a series RLC circuit with R = 1 ohm, C = 0.2 farad, L = 1 henry, dt = 0.1 second, and initial values i_(L_0) = 0 amps and v_(C_0) = 10 volts.
+
+#+NAME: RLC
+#+begin_src scheme
+  <<stream_ops>>
+  <<delayed_integral_2>>
+  (define (RLC R L C dt)
+    (lambda (vC0 iL0)
+      (define vC (integral (delay dvC) vC0 dt))
+      (define iL (integral (delay diL) (- iL0) dt))
+      (define diL (add-streams (scale-stream vC (/ 1 L))
+                               (scale-stream iL (- (/ R L)))))
+      (define dvC (scale-stream iL (- (/ 1 C))))
+      (stream-zip vC iL)))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<RLC>>
+  (stream->list 10 ((RLC 1 1 0.2 0.1) 10 0))
+#+end_src
+
+#+RESULTS:
+: ((10 0) (10.0 1.0) (9.5 1.9) (8.55 2.66) (7.220000000000001 3.249) (5.5955 3.6461) (3.77245 3.84104) (1.8519299999999999 3.834181) (-0.0651605000000004 3.6359559) (-1.8831384500000004 3.2658442599999997))
+**** 3.5.5 Modularity of Functional Programs and Modularity of Objects
+One of the benefits of assignment was being able to encapsulate parts of the state of a system in local variables. Streams allow us a similar modularity. For instance, random numbers:
+
+#+begin_src scheme
+  (define random-numbers
+    (cons-stream random-init
+                 (stream-map rand-update random-numbers)))
+#+end_src
+
+#+NAME: monte_carlo_stream
+#+begin_src scheme
+  (define (monte-carlo experiment-stream passed failed)
+    (define (next passed failed)
+      (stream-cons
+       (/ passed (+ passed failed))
+       (monte-carlo
+        (stream-cdr experiment-stream) passed failed)))
+    (if (stream-car experiment-stream)
+        (next (+ passed 1) failed)
+        (next passed (+ failed 1))))
+#+end_src
+
+*Exercise 3.81*. *Note Exercise 3-6:: discussed generalizing the random-number generator to allow one to reset the random-number sequence so as to produce repeatable sequences of "random" numbers.  Produce a stream formulation of this same generator that operates on an input stream of requests to ~generate~ a new random number or to ~reset~ the sequence to a specified value and that produces the desired stream of random numbers.  Don't use assignment in your solution.
+
+#+NAME: rand_stream
+#+begin_src scheme
+  (define (rand-stream req-s)
+    (let ((range 1000000)
+          (seed 1))
+      (define (rand-from-seed i) (random range (seed->random-state i)))
+      (let ((init-val (rand-from-seed seed)))
+        (define rand-s
+          (stream-cons
+           init-val
+           (stream-map
+            (lambda (req val)
+              (cond ((eq? 'reset req) init-val)
+                    ((eq? 'generate req)
+                     (rand-from-seed val))))
+            req-s rand-s)))
+        rand-s)))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<stream_ops>>
+  <<rand_stream>>
+  (stream->list 5 (rand-stream (stream 'generate 'generate 'reset 'generate)))
+#+end_src
+
+#+RESULTS:
+: (262169 527288 945141 262169 527288)
+
+*Exercise 3.82*. Redo *Note Exercise 3-5:: on Monte Carlo integration in terms of streams.  The stream version of ~estimate-integral~ will not have an argument telling how many trials to perform.  Instead, it will produce a stream of estimates based on successively more trials.
+
+#+NAME: random_in_range
+#+begin_src scheme
+  <<stream_ops>>
+  (define (random-in-range low high seed)
+    (let ((state (seed->random-state seed)))
+      (define (next-random x) (+ low (random (- high low) state)))
+      (stream-iterate next-random (next-random 1))))
+#+end_src
+
+#+NAME: estimate_integral
+#+begin_src scheme
+  <<monte_carlo_stream>>
+  <<random_in_range>>
+  (define (estimate-integral P x1 x2 y1 y2)
+    (define in-range-stream
+      (stream-map P (random-in-range x1 x2 1) (random-in-range y1 y2 2)))
+    (stream-map (lambda (p) (* 1.0 (- x2 x1) (- y2 y1) p))
+                (monte-carlo in-range-stream 0 0)))
+#+end_src
+
+#+begin_src scheme :results replace
+  <<estimate_integral>>
+  (stream-ref (estimate-integral
+               (lambda (x y) (<= (+ (* x x) (* y y)) 1)) -1.0 1.0 -1.0 1.0)
+              1000)
+#+end_src
+
+#+RESULTS:
+: 3.1408591408591406
