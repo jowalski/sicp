@@ -321,18 +321,18 @@ b. Louis is upset that his plan didn't work.  He is willing to go to any lengths
 
   (define special-forms
     (list
-     '(quote  . (lambda (exp env) (text-of-quotation exp)))
-     '(set!   . eval-assignment)
-     '(define . eval-definition)
-     '(if     . eval-if)
-     '(lambda . (lambda (exp env)
-                  (make-procedure (lambda-parameters exp)
-                                  (lambda-body exp) env)))
-     '(begin  . (lambda (exp env) (eval-sequence (begin-actions exp) env)))
-     '(cond   . (derived-exp cond->if))
-     '(and    . eval-and)
-     '(or     . eval-or)
-     '(let    . (derived-exp let->combination))))
+     `(quote  . ,(lambda (exp env) (text-of-quotation exp)))
+     `(set!   . ,eval-assignment)
+     `(define . ,eval-definition)
+     `(if     . ,eval-if)
+     `(lambda . ,(lambda (exp env)
+                   (make-procedure (lambda-parameters exp)
+                                   (lambda-body exp) env)))
+     `(begin  . ,(lambda (exp env) (eval-sequence (begin-actions exp) env)))
+     `(cond   . ,(derived-exp cond->if))
+     `(and    . ,eval-and)
+     `(or     . ,eval-or)
+     `(let    . ,(derived-exp let->combination))))
 #+end_src
 
 #+NAME: eval_dispatch
@@ -341,13 +341,12 @@ b. Louis is upset that his plan didn't work.  He is willing to go to any lengths
     (cond ((self-evaluating? exp) exp)
           ((variable? exp) (lookup-variable-value exp env))
           ((pair? exp)
-           (let ((operator (car exp))
-                 (operands (cdr exp)))
-             (let ((special-form (assq-ref operator special-forms)))
-               (if (special-form)
-                   (special-form operands env)
+           (let ((operator (car exp)))
+             (let ((special-form (assq-ref special-forms operator)))
+               (if special-form
+                   (special-form exp env)
                    (apply (eval operator env)
-                          (list-of-values operands env))))))
+                          (list-of-values (cdr exp) env))))))
           (else (error "Unknown expression type -- EVAL"))))
 #+end_src
 
@@ -364,17 +363,17 @@ Install ~and~ and ~or~ as new special forms for the evaluator by defining approp
   ;; as special forms (add these to special forms list)
   (define (eval-and exp env)
     (if (null? exp)
-        true
+        #t
         (let ((value (eval (car exp) env)))
           (if (false? value)
-              false
+              #f
               (if (null? (cdr exp))
                   value
                   (eval-and (cdr exp) env))))))
 
   (define (eval-or exp env)
     (if (null? exp)
-        false
+        #f
         (let ((value (eval (car exp) env)))
           (if (true? value)
               value
@@ -437,7 +436,7 @@ Install ~and~ and ~or~ as new special forms for the evaluator by defining approp
 
 #+begin_src scheme
   (cond ((assoc 'b '((a 1) (b 2))) => cadr)
-        (else false))
+        (else #f))
 #+end_src
 
 returns 2.  Modify the handling of ~cond~ so that it supports this extended syntax.
@@ -524,6 +523,7 @@ is equivalent to
 
 Implement a syntactic transformation ~let->combination~ that reduces evaluating ~let~ expressions to evaluating combinations of the type shown above, and add the appropriate clause to ~eval~ to handle ~let~ expressions.
 
+#+NAME: let
 #+begin_src scheme
   (define (let-vars var-exp)
     (if (null? var-exp)
@@ -533,7 +533,7 @@ Implement a syntactic transformation ~let->combination~ that reduces evaluating 
   (define (let-exps var-exp)
     (if (null? var-exp)
         '()
-        (cons (cadr var-exp) (let-exprs (cdr var-exp)))))
+        (cons (cadr var-exp) (let-exps (cdr var-exp)))))
 
   (define (let-var-exp exp) (cadr exp))
 
@@ -578,6 +578,7 @@ or must we explicitly expand ~let*~ in terms of non-derived expressions?
       <BODY>))
 #+end_src
 
+#+NAME: let_plus
 #+begin_src scheme
   (define (make-let var-exps body)
     (list 'let var-exps body))
@@ -611,9 +612,446 @@ The <BINDINGS> and <BODY> are just as in ordinary ~let~, except that <VAR> is bo
           (fib-iter (+ a b) a (- count 1)))))
 #+end_src
 
-
 Modify ~let->combination~ of *Note Exercise 4-6:: to also support named ~let~.
 
-#+begin_src scheme
+The equivalent (I think) would be:
 
+#+begin_src scheme
+  ((lambda ()
+     (define <VAR> (lambda (<VAR_1> ... <VAR_N>)
+                    <BODY>))
+     (<VAR> <EXP_1> ... <EXP_N>)))
+#+end_src
+
+#+NAME: enclose_body
+#+begin_src scheme
+(define (enclose-body body) (list (make-lambda '() body)))
+#+end_src
+
+#+NAME: make_definition
+#+begin_src scheme
+(define (make-value-definition var value)
+  (list 'define var value))
+(define (make-fun-definition var args body)
+  (list 'define (list var args) body))
+#+end_src
+
+#+NAME: let_named
+#+begin_src scheme
+  <<enclose_body>>
+  <<make_definition>>
+  (define (named-let-var exp) (cadr exp))
+  (define (named-let-vars exp) (let-vars (caddr exp)))
+  (define (named-let-exps exp) (let-exps (caddr exp)))
+  (define (named-let-body exp) (cadddr exp))
+
+  (define (make-named-let var vars exps body)
+    (enclose-body
+     (list (make-value-definition var
+             (make-lambda vars body))
+           (cons var exps))))
+
+  (define (let->combination exp)
+    (if (symbol? (cadr exp))
+        (make-named-let (named-let-var exp)     ; named let
+                        (named-let-vars exp)
+                        (named-let-exps exp)
+                        (named-let-body exp))
+        (list (make-lambda (let-vars (let-var-exp exp)) ; regular let
+                           (let-body exp))
+              (let-exps (let-var-exp exp)))))
+#+end_src
+
+*Exercise 4.9*. Many languages support a variety of iteration constructs, such as ~do~, ~for~, ~while~, and ~until~.  In Scheme, iterative processes can be expressed in terms of ordinary procedure calls, so special iteration constructs provide no essential gain in computational power.  On the other hand, such constructs are often convenient.  Design some iteration constructs, give examples of their use, and show how to implement them as derived expressions.
+
+  * starting with the GUILE do
+
+#+begin_src scheme
+(do ((<VAR_1> <INIT_1> <STEP_1>) ...) (<TEST> [<EXP>]) <BODY> )
+#+end_src
+
+#+begin_src scheme
+((lambda ()
+   (define (*iter* var1 ...)
+     (if (test)
+         (begin body (*iter* (step1 var1) ...))
+         exp))
+   (*iter* init_1 ...)))
+#+end_src
+
+#+NAME: do
+#+begin_src scheme
+  <<enclose_body>>
+  <<make_definition>>
+  (define (do-var-clause exp) (cadr exp))
+  (define (make-varlist clause part)
+      (if (null? clause)
+          '()
+          (cons (part (car clause)) (make-varlist (cdr clause)))))
+
+  (define (do-vars exp) (make-varlist (do-var-clause exp) car))
+  (define (do-inits exp) (make-varlist (do-var-clause exp) cadr))
+  (define (do-steps exp) (make-varlist (do-var-clause exp) caddr))
+
+  (define (do-test exp) (car (caddr exp)))
+  (define (do-exp exp)  (cadr (caddr exp)))
+  (define (do-body exp) (cadddr exp))
+
+  (define (do->combination exp)
+    (enclose-body
+     (list
+      (make-fun-definition
+       '*iter* (do-vars exp)
+       (make-if (do-test exp)
+                (make-begin
+                 (do-body exp)
+                 (list '*iter* (zip (do-steps) (do-vars exp))))
+                (do-exp exp)))
+      (append '*iter* (do-inits exp)))))
+#+end_src
+
+  * ~while~ (but without the ~break/continue~ functionality presumably)
+
+#+begin_src scheme
+  (while cond body)
+#+end_src
+
+#+begin_src scheme
+  ((lambda ()
+     (define (*iter*)
+       (if (test)
+           (begin body (*iter*))
+           false))
+     (*iter*)))
+#+end_src
+
+#+NAME: while
+#+begin_src scheme
+  (define (while-test exp) (cadr exp))
+  (define (while-body exp) (caddr exp))
+
+  (define (while->combination exp)
+    (enclose-body
+     (list
+      (make-fun-definition
+       '*iter* '()
+       (make-if (while-test exp)
+                (make-begin
+                 (while-body exp)
+                 (list '*iter*))
+                #f))
+      (list '*iter*))))
+
+#+end_src
+
+*Exercise 4.10*. By using data abstraction, we were able to write an ~eval~ procedure that is independent of the particular syntax of the language to be evaluated.  To illustrate this, design and implement a new syntax for Scheme by modifying the procedures in this section, without changing ~eval~ or ~apply~.
+
+  * we could rename the special forms, change the order of arguments to each form
+  * not sure what else we could easily do???
+
+** 4.1.3 Evaluator Data Structures
+We also need to implement the internal data structures that the evaluator manipulates.
+*** Testing of predicates
+For conditionals, anything is true that isn't the explicit ~false~ object.
+
+#+NAME: bool
+#+begin_src scheme
+  (define (true? x)
+    (not (eq? x #f)))
+
+  (define (false? x)
+    (eq? x #f))
+#+end_src
+*** Representing procedures
+
+Later we'll describe ~apply-primitive-procedure~ and ~primitive-procedure?~.
+
+#+NAME: procedures
+#+begin_src scheme
+  (define (make-procedure parameters body env)
+    (list 'procedure parameters body env))
+
+  (define (compound-procedure? p)
+    (tagged-list? p 'procedure))
+
+  (define (procedure-parameters p) (cadr p))
+
+  (define (procedure-body p) (caddr p))
+
+  (define (procedure-environment p) (cadddr p))
+#+end_src
+*** Operations on Environments
+To manipulate environments we need ~lookup-variable-value~, ~extend-environment~, ~define-variable!~ and ~set-variable-value!~.
+
+We'll represent an environment as a list of frames.
+
+#+NAME: environment_funs
+#+begin_src scheme
+  (define (enclosing-environment env) (cdr env))
+
+  (define (first-frame env) (car env))
+
+  (define the-empty-environment '())
+
+  (define (make-frame variables values)
+    (cons variables values))
+
+  (define (frame-variables frame) (car frame))
+
+  (define (frame-values frame) (cdr frame))
+
+  (define (add-binding-to-frame! var val frame)
+    (set-car! frame (cons var (car frame)))
+    (set-cdr! frame (cons val (cdr frame))))
+#+end_src
+
+To extend an environment by a new frame, we make a frame of the list of variables and values and adjoin it to the environment:
+
+#+NAME: environment_manip
+#+begin_src scheme
+  (define (extend-environment vars vals base-env)
+    (if (= (length vars) (length vals))
+        (cons (make-frame vars vals) base-env)
+        (if (< (length vars) (length vals))
+            (error "Too many arguments supplied" vars vals)
+            (error "Too few arguments supplied" vars vals))))
+
+  (define (lookup-variable-value var env)
+    (define (env-loop env)
+      (define (scan vars vals)
+        (cond ((null? vars)
+               (env-loop (enclosing-environment env)))
+              ((eq? var (car vars))
+               (car vals))
+              (else (scan (cdr vars) (cdr vals)))))
+      (if (eq? env the-empty-environment)
+          (error "Unbound variable" var)
+          (let ((frame (first-frame env)))
+            (scan (frame-variables frame)
+                  (frame-values frame)))))
+    (env-loop env))
+
+  (define (set-variable-value! var val env)
+    (define (env-loop env)
+      (define (scan vars vals)
+        (cond ((null? vars)
+               (env-loop (enclosing-environment env)))
+              ((eq? var (car vars))
+               (set-car! vals val))
+              (else (scan (cdr vars) (cdr vals)))))
+      (if (eq? env the-empty-environment)
+          (error "Unbound variable -- SET!" var)
+          (let ((frame (first-frame env)))
+            (scan (frame-variables frame)
+                  (frame-values frame)))))
+    (env-loop env))
+
+  (define (define-variable! var val env)
+    (let ((frame (first-frame env)))
+      (define (scan vars vals)
+        (cond ((null? vars)
+               (add-binding-to-frame! var val frame))
+              ((eq? var (car vars))
+               (set-car! vals val))
+              (else (scan (cdr vars) (cdr vals)))))
+      (scan (frame-variables frame)
+            (frame-values frame))))
+#+end_src
+
+*Exercise 4.11*. Instead of representing a frame as a pair of lists, we can represent a frame as a list of bindings, where each binding is a name-value pair.  Rewrite the environment operations to use this alternative representation.
+
+#+NAME: frame_bindings
+#+begin_src scheme
+  (define (make-frame variables values)
+    (if (null? variables)
+        '()
+        (cons (cons (car variables) (car values))
+              (make-frame (cdr variables) (cdr values)))))
+
+  (define (frame-variables frame)
+    (if (null? frame)
+        '()
+        (cons (caar frame) (frame-variables (cdr frame)))))
+
+  (define (frame-values frame)
+    (if (null? frame)
+        '()
+        (cons (cadar frame) (frame-values (cdr frame)))))
+
+  (define (add-binding-to-frame! var val frame)
+    (set-car! frame (cons var val)))
+#+end_src
+
+*Exercise 4.12*. The procedures ~set-variable-value!~, ~define-variable!~, and ~lookup-variable-value~ can be expressed in terms of more abstract procedures for traversing the environment structure.  Define abstractions that capture the common patterns and redefine the three procedures in terms of these abstractions.
+
+#+begin_src scheme
+  (define (traverse-env var env on-match . on-null)
+    (define (env-loop env)
+      (define (scan vars vals)
+        (cond ((null? vars)
+               (if (null? on-null)
+                   (env-loop (enclosing-environment env))
+                   (on-null env)))
+              ((eq? var (car vars))
+               (on-match vars vals))
+              (else (scan (cdr vars) (cdr vals)))))
+      (if (eq? env the-empty-environment)
+          (error "Unbound variable" var)
+          (let ((frame (first-frame env)))
+            (scan (frame-variables frame)
+                  (frame-values frame)))))
+    (env-loop env))
+
+  (define (lookup-variable-value var env)
+    (traverse-env var env car))
+
+  (define (set-variable-value! var val env)
+    (traverse-env var env
+                  (lambda (vals) (set-car! vals val))))
+
+  (define (define-variable! var val env)
+    (traverse-env var env
+                  (lambda (vals) (set-car! vals val))
+                  (lambda (env) (add-binding-to-frame! var val (first-frame env)))))
+#+end_src
+
+
+*Exercise 4.13*. Scheme allows us to create new bindings for variables by means of ~define~, but provides no way to get rid of bindings.  Implement for the evaluator a special form ~make-unbound!~ that removes the binding of a given symbol from the environment in which the ~make-unbound!~ expression is evaluated. This problem is not completely specified.  For example, should we remove only the binding in the first frame of the environment? Complete the specification and justify any choices you make.
+
+#+begin_src scheme
+  (define (remove-cons x)
+    (begin (set-car! x (cadr x))
+           (set-cdr! x (cddr x))))
+
+  (define (make-unbound! var env)
+    (traverse-env sym env
+                  (lambda (vars vals)
+                    (if (null? (cdr vars)) ; only one element in vars
+                        (begin (set-car! (first-frame env) (cdr vars))
+                               (set-cdr! (first-frame env) (cdr vals)))
+                        (begin (remove-cons vars)
+                               (remove-cons vals))))
+                  (lambda () (error "Could not find " var))))
+#+end_src
+
+  * This only removes the binding in the first frame. One reason for this choice is because you can only ~define-variable!~ in the first frame of the environment, so in this sense it is symmetrical. You can also still call ~make-unbound!~ on the enclosed environment if you'd like to unbind a variable there.
+** 4.1.4 Running the Evaluator as a Program
+The evaluator reduces expressions to the application of primitive procedures, so we need a binding for each primitive procedure. We create a global environment that contains these names, as well as for ~true~ and ~false~.
+
+#+NAME: environment
+#+begin_src scheme
+  (define (setup-environment)
+    (let ((initial-env
+           (extend-environment (primitive-procedure-names)
+                               (primitive-procedure-objects)
+                               the-empty-environment)))
+      (define-variable! 'true #t initial-env)
+      (define-variable! 'false #f initial-env)
+      initial-env))
+
+  ;; (define the-global-environment (setup-environment))
+#+end_src
+
+It doesn't matter how we represent primitive procedures, so long as ~apply~ can identify and apply them, so we'll implement them as a list beginning with ~primitive~ and containing a procedure in the underlying lisp that implements the procedure.
+
+#+NAME: primitive_funs
+#+begin_src scheme
+  (define (primitive-procedure? proc)
+    (tagged-list? proc 'primitive))
+
+  (define (primitive-implementation proc) (cadr proc))
+#+end_src
+
+#+NAME: primitives
+#+begin_src scheme
+  (define primitive-procedures
+    (list (list 'car car)
+          (list 'cdr cdr)
+          (list 'cons cons)
+          (list 'null? null?)
+          ;; <MORE PRIMITIVES>
+          ))
+
+  (define (primitive-procedure-names)
+    (map car
+         primitive-procedures))
+
+  (define (primitive-procedure-objects)
+    (map (lambda (proc) (list 'primitive (cadr proc)))
+         primitive-procedures))
+
+  (define (apply-primitive-procedure proc args)
+    (apply-in-underlying-scheme
+     (primitive-implementation proc) args))
+
+  (define apply-in-underlying-scheme apply)
+#+end_src
+
+This is a "driver loop" that models the read-eval-print loop of the underlying Lisp system.
+
+#+NAME: driver_loop
+#+begin_src scheme
+  (define input-prompt ";;; M-Eval input:")
+  (define output-prompt ";;; M-Eval value:")
+
+  (define (driver-loop)
+    (prompt-for-input input-prompt)
+    (let ((input (read)))
+      (let ((output (eval input the-global-environment)))
+        (announce-output output-prompt)
+        (user-print output)))
+    (driver-loop))
+
+  (define (prompt-for-input string)
+    (newline) (newline) (display string) (newline))
+
+  (define (announce-output string)
+    (newline) (display string) (newline))
+
+  (define (user-print object)
+    (if (compound-procedure? object)
+        (display (list 'compound-procedure
+                       (procedure-parameters object)
+                       (procedure-body object)
+                       '<procedure-env>))
+        (display object)))
+   (define the-global-environment (setup-environment))
+#+end_src
+
+To run the evaluator we just initialize the global environment and start the loop:
+
+#+NAME: run_scheme
+#+begin_src scheme
+  <<evaluator_package>>
+
+  (driver-loop)
+#+end_src
+
+#+NAME: evaluator_package
+#+begin_src scheme :tangle evaluator.scm
+  <<list_of_values>>
+  <<eval_if>>
+  <<eval_sequence>>
+  <<eval_assignment>>
+  <<eval_definition>>
+  <<syntax>>
+  <<and_or_special>>
+  ;; <<and_or_derived>>
+  <<cond_new>>
+  <<let>>
+  <<let_plus>>
+  <<special_forms>>
+  <<enclose_body>>
+  <<make_definition>>
+  <<let_named>>
+  <<bool>>
+  <<procedures>>
+  <<environment_funs>>
+  <<environment_manip>>
+  <<environment>>
+  <<primitives>>
+  <<primitive_funs>>
+  <<apply>>
+  <<eval_dispatch>>
+  <<driver_loop>>
 #+end_src
