@@ -197,7 +197,7 @@ Below is the specification of the syntax of the language:
   (define (lambda-body exp) (cddr exp))
 
   (define (make-lambda parameters body)
-    (cons 'lambda (cons parameters body)))
+    (cons 'lambda (list parameters body)))
 
   ;; conditionals
   (define (if? exp) (tagged-list? exp 'if))
@@ -497,7 +497,7 @@ returns 2.  Modify the handling of ~cond~ so that it supports this extended synt
         (sequence->exp actions)))
 
   (define (make-cond-clause pred actions rest)
-    (list (make-lambda 'x
+    (list (make-lambda '(x)
                        (make-if 'x
                                 (make-cond-type actions 'x)
                                 (expand-clauses rest)))
@@ -528,19 +528,19 @@ Implement a syntactic transformation ~let->combination~ that reduces evaluating 
   (define (let-vars var-exp)
     (if (null? var-exp)
         '()
-        (cons (car var-exp) (let-vars (cdr var-exp)))))
+        (cons (caar var-exp) (let-vars (cdr var-exp)))))
 
   (define (let-exps var-exp)
     (if (null? var-exp)
         '()
-        (cons (cadr var-exp) (let-exps (cdr var-exp)))))
+        (cons (cadar var-exp) (let-exps (cdr var-exp)))))
 
   (define (let-var-exp exp) (cadr exp))
 
-  (define (let-body exp) (cddr exp))
+  (define (let-body exp) (caddr exp))
 
   (define (let->combination exp)
-    (list (make-lambda (let-vars (let-var-exp exp))
+    (cons (make-lambda (let-vars (let-var-exp exp))
                        (let-body exp))
           (let-exps (let-var-exp exp))))
 #+end_src
@@ -657,7 +657,7 @@ The equivalent (I think) would be:
                         (named-let-vars exp)
                         (named-let-exps exp)
                         (named-let-body exp))
-        (list (make-lambda (let-vars (let-var-exp exp)) ; regular let
+        (cons (make-lambda (let-vars (let-var-exp exp)) ; regular let
                            (let-body exp))
               (let-exps (let-var-exp exp)))))
 #+end_src
@@ -991,8 +991,8 @@ This is a "driver loop" that models the read-eval-print loop of the underlying L
 
 #+NAME: driver_loop
 #+begin_src scheme
-  (define input-prompt ";;; M-Eval input:")
-  (define output-prompt ";;; M-Eval value:")
+  (define input-prompt ";;; M-Eval input: ")
+  (define output-prompt ";;; M-Eval value: ")
 
   (define (driver-loop)
     (prompt-for-input input-prompt)
@@ -1003,10 +1003,10 @@ This is a "driver loop" that models the read-eval-print loop of the underlying L
     (driver-loop))
 
   (define (prompt-for-input string)
-    (newline) (newline) (display string) (newline))
+    (newline) (display string))
 
   (define (announce-output string)
-    (newline) (display string) (newline))
+    (display string) (newline))
 
   (define (user-print object)
     (if (compound-procedure? object)
@@ -1055,3 +1055,7 @@ To run the evaluator we just initialize the global environment and start the loo
   <<eval_dispatch>>
   <<driver_loop>>
 #+end_src
+
+*Exercise 4.14*. Eva Lu Ator and Louis Reasoner are each experimenting with the metacircular evaluator.  Eva types in the definition of ~map~, and runs some test programs that use it. They work fine.  Louis, in contrast, has installed the system version of ~map~ as a primitive for the metacircular evaluator. When he tries it, things go terribly wrong.  Explain why Louis's ~map~ fails even though Eva's works.
+
+The underlying Lisp ~map~ takes as its function arguments a function of the underlying Lisp type. So it may work with functions that themselves are primitives, but for non-primitives, it will essentially be getting something else (a list representing a function in the implemented Lisp, )

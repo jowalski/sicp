@@ -73,7 +73,7 @@
 (define (lambda-body exp) (cddr exp))
 
 (define (make-lambda parameters body)
-  (cons 'lambda (cons parameters body)))
+  (cons 'lambda (list parameters body)))
 
 ;; conditionals
 (define (if? exp) (tagged-list? exp 'if))
@@ -240,7 +240,7 @@
       (sequence->exp actions)))
 
 (define (make-cond-clause pred actions rest)
-  (list (make-lambda 'x
+  (list (make-lambda '(x)
                      (make-if 'x
                               (make-cond-type actions 'x)
                               (expand-clauses rest)))
@@ -248,12 +248,12 @@
 (define (let-vars var-exp)
   (if (null? var-exp)
       '()
-      (cons (car var-exp) (let-vars (cdr var-exp)))))
+      (cons (caar var-exp) (let-vars (cdr var-exp)))))
 
 (define (let-exps var-exp)
   (if (null? var-exp)
       '()
-      (cons (cadr var-exp) (let-exps (cdr var-exp)))))
+      (cons (cadar var-exp) (let-exps (cdr var-exp)))))
 
 (define (let-var-exp exp) (cadr exp))
 
@@ -458,8 +458,8 @@
                  (apply (eval operator env)
                         (list-of-values (cdr exp) env))))))
         (else (error "Unknown expression type -- EVAL"))))
-(define input-prompt ";;; M-Eval input:")
-(define output-prompt ";;; M-Eval value:")
+(define input-prompt ";;; M-Eval input> ")
+(define output-prompt ";;; M-Eval value: ")
 
 (define (driver-loop)
   (prompt-for-input input-prompt)
@@ -470,10 +470,10 @@
   (driver-loop))
 
 (define (prompt-for-input string)
-  (newline) (newline) (display string) (newline))
+  (newline) (display string))
 
 (define (announce-output string)
-  (newline) (display string) (newline))
+  (display string) (newline))
 
 (define (user-print object)
   (if (compound-procedure? object)
