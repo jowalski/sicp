@@ -73,7 +73,7 @@
 (define (lambda-body exp) (cddr exp))
 
 (define (make-lambda parameters body)
-  (cons 'lambda (list parameters body)))
+  (cons 'lambda (cons parameters body)))
 
 ;; conditionals
 (define (if? exp) (tagged-list? exp 'if))
@@ -120,7 +120,8 @@
 (define (first-operand ops) (car ops))
 
 (define (rest-operands ops) (cdr ops))
-;; as special forms (add these to special forms list)
+xo(define (eval-list-f f) (lambda (exp env) (f (cdr exp) env)))
+
 (define (eval-and exp env)
   (if (null? exp)
       #t
@@ -138,6 +139,7 @@
         (if (true? value)
             value
             (eval-or (cdr exp) env)))))
+
 ;; ;; as derived expressions
 ;; (define (eval-and exp env) (eval (and->if exp) env))
 ;; (define (eval-or exp env) (eval (or->if exp) env))
@@ -232,19 +234,16 @@
                        clauses))
             (let ((pred (cond-predicate first))
                   (actions (cond-actions first)))
-              (make-cond-clause pred actions rest))))))
+              (if (eq? (car actions) '=>)
+                  (cons (make-lambda '(x)
+                                     (list
+                                       (make-if 'x (list (cadr actions) 'x)
+                                                    (expand-clauses rest))))
+                        (list pred))
+                  (make-if (cond-predicate first)
+                           (sequence->exp (cond-actions first))
+                           (expand-clauses rest))))))))
 
-(define (make-cond-type actions pred-var)
-  (if (eq? (car actions) '=>)
-      (list (cdr actions) 'x)
-      (sequence->exp actions)))
-
-(define (make-cond-clause pred actions rest)
-  (list (make-lambda '(x)
-                     (make-if 'x
-                              (make-cond-type actions 'x)
-                              (expand-clauses rest)))
-        pred))
 (define (let-vars var-exp)
   (if (null? var-exp)
       '()
@@ -259,10 +258,7 @@
 
 (define (let-body exp) (cddr exp))
 
-(define (let->combination exp)
-  (list (make-lambda (let-vars (let-var-exp exp))
-                     (let-body exp))
-        (let-exps (let-var-exp exp))))
+
 (define (make-let var-exps body)
   (list 'let var-exps body))
 
@@ -273,23 +269,6 @@
         (make-let (list (car var-exps))
                   (expand-let-clauses (cdr var-exps)))))
   (expand-let-clauses (let-var-exp exp)))
-(define (derived-exp exp-f)
-  (lambda (exp env) (eval (exp-f exp) env)))
-
-(define special-forms
-  (list
-   `(quote  . ,(lambda (exp env) (text-of-quotation exp)))
-   `(set!   . ,eval-assignment)
-   `(define . ,eval-definition)
-   `(if     . ,eval-if)
-   `(lambda . ,(lambda (exp env)
-                 (make-procedure (lambda-parameters exp)
-                                 (lambda-body exp) env)))
-   `(begin  . ,(lambda (exp env) (eval-sequence (begin-actions exp) env)))
-   `(cond   . ,(derived-exp cond->if))
-   `(and    . ,eval-and)
-   `(or     . ,eval-or)
-   `(let    . ,(derived-exp let->combination))))
 (define (enclose-body body) (list (make-lambda '() body)))
 (define (make-value-definition var value)
   (list 'define var value))
@@ -303,7 +282,7 @@
 (define (named-let-var exp) (cadr exp))
 (define (named-let-vars exp) (let-vars (caddr exp)))
 (define (named-let-exps exp) (let-exps (caddr exp)))
-(define (named-let-body exp) (cadddr exp))
+(define (named-let-body exp) (cdddr exp))
 
 (define (make-named-let var vars exps body)
   (enclose-body
@@ -317,7 +296,7 @@
                       (named-let-vars exp)
                       (named-let-exps exp)
                       (named-let-body exp))
-      (list (make-lambda (let-vars (let-var-exp exp)) ; regular let
+      (cons (make-lambda (let-vars (let-var-exp exp)) ; regular let
                          (let-body exp))
             (let-exps (let-var-exp exp)))))
 (define (true? x)
@@ -336,6 +315,23 @@
 (define (procedure-body p) (caddr p))
 
 (define (procedure-environment p) (cadddr p))
+(define (derived-exp exp-f)
+  (lambda (exp env) (eval (exp-f exp) env)))
+
+(define special-forms
+  (list
+   `(quote  . ,(lambda (exp env) (text-of-quotation exp)))
+   `(set!   . ,eval-assignment)
+   `(define . ,eval-definition)
+   `(if     . ,eval-if)
+   `(lambda . ,(lambda (exp env)
+                 (make-procedure (lambda-parameters exp)
+                                 (lambda-body exp) env)))
+   `(begin  . ,(lambda (exp env) (eval-sequence (begin-actions exp) env)))
+   `(cond   . ,(derived-exp cond->if))
+   `(and    . ,(eval-list-f eval-and))
+   `(or     . ,(eval-list-f eval-or))
+   `(let    . ,(derived-exp let->combination))))
 (define (enclosing-environment env) (cdr env))
 
 (define (first-frame env) (car env))
@@ -458,7 +454,7 @@
                  (apply (eval operator env)
                         (list-of-values (cdr exp) env))))))
         (else (error "Unknown expression type -- EVAL"))))
-(define input-prompt ";;; M-Eval input> ")
+(define input-prompt ";;; M-Eval input: ")
 (define output-prompt ";;; M-Eval value: ")
 
 (define (driver-loop)

@@ -197,7 +197,7 @@ Below is the specification of the syntax of the language:
   (define (lambda-body exp) (cddr exp))
 
   (define (make-lambda parameters body)
-    (cons 'lambda (list parameters body)))
+    (cons 'lambda (cons parameters body)))
 
   ;; conditionals
   (define (if? exp) (tagged-list? exp 'if))
@@ -330,8 +330,8 @@ b. Louis is upset that his plan didn't work.  He is willing to go to any lengths
                                    (lambda-body exp) env)))
      `(begin  . ,(lambda (exp env) (eval-sequence (begin-actions exp) env)))
      `(cond   . ,(derived-exp cond->if))
-     `(and    . ,eval-and)
-     `(or     . ,eval-or)
+     `(and    . ,(eval-list-f eval-and))
+     `(or     . ,(eval-list-f eval-or))
      `(let    . ,(derived-exp let->combination))))
 #+end_src
 
@@ -360,7 +360,8 @@ Install ~and~ and ~or~ as new special forms for the evaluator by defining approp
 
 #+NAME: and_or_special
 #+begin_src scheme
-  ;; as special forms (add these to special forms list)
+  (define (eval-list-f f) (lambda (exp env) (f (cdr exp) env)))
+
   (define (eval-and exp env)
     (if (null? exp)
         #t
@@ -489,19 +490,16 @@ returns 2.  Modify the handling of ~cond~ so that it supports this extended synt
                          clauses))
               (let ((pred (cond-predicate first))
                     (actions (cond-actions first)))
-                (make-cond-clause pred actions rest))))))
+                (if (eq? (car actions) '=>)
+                    (cons (make-lambda '(x)
+                                       (list
+                                         (make-if 'x (list (cadr actions) 'x)
+                                                      (expand-clauses rest))))
+                          (list pred))
+                    (make-if (cond-predicate first)
+                             (sequence->exp (cond-actions first))
+                             (expand-clauses rest))))))))
 
-  (define (make-cond-type actions pred-var)
-    (if (eq? (car actions) '=>)
-        (list (cdr actions) 'x)
-        (sequence->exp actions)))
-
-  (define (make-cond-clause pred actions rest)
-    (list (make-lambda '(x)
-                       (make-if 'x
-                                (make-cond-type actions 'x)
-                                (expand-clauses rest)))
-          pred))
 #+end_src
 
 *Exercise 4.6*. ~Let~ expressions are derived expressions, because
@@ -537,8 +535,13 @@ Implement a syntactic transformation ~let->combination~ that reduces evaluating 
 
   (define (let-var-exp exp) (cadr exp))
 
-  (define (let-body exp) (caddr exp))
+  (define (let-body exp) (cddr exp))
 
+
+#+end_src
+
+#+NAME: let_plain
+#+begin_src scheme
   (define (let->combination exp)
     (cons (make-lambda (let-vars (let-var-exp exp))
                        (let-body exp))
@@ -643,7 +646,7 @@ The equivalent (I think) would be:
   (define (named-let-var exp) (cadr exp))
   (define (named-let-vars exp) (let-vars (caddr exp)))
   (define (named-let-exps exp) (let-exps (caddr exp)))
-  (define (named-let-body exp) (cadddr exp))
+  (define (named-let-body exp) (cdddr exp))
 
   (define (make-named-let var vars exps body)
     (enclose-body
@@ -1040,12 +1043,12 @@ To run the evaluator we just initialize the global environment and start the loo
   <<cond_new>>
   <<let>>
   <<let_plus>>
-  <<special_forms>>
   <<enclose_body>>
   <<make_definition>>
   <<let_named>>
   <<bool>>
   <<procedures>>
+  <<special_forms>>
   <<environment_funs>>
   <<environment_manip>>
   <<environment>>
@@ -1059,3 +1062,14 @@ To run the evaluator we just initialize the global environment and start the loo
 *Exercise 4.14*. Eva Lu Ator and Louis Reasoner are each experimenting with the metacircular evaluator.  Eva types in the definition of ~map~, and runs some test programs that use it. They work fine.  Louis, in contrast, has installed the system version of ~map~ as a primitive for the metacircular evaluator. When he tries it, things go terribly wrong.  Explain why Louis's ~map~ fails even though Eva's works.
 
 The underlying Lisp ~map~ takes as its function arguments a function of the underlying Lisp type. So it may work with functions that themselves are primitives, but for non-primitives, it will essentially be getting something else (a list representing a function in the implemented Lisp, )
+
+*Exercise 4.15*. Given a one-argument procedure ~p~ and an object ~a~, ~p~ is said to "halt" on ~a~ if evaluating the expression ~(p a)~ returns a value (as opposed to terminating with an error message or running forever).  Show that it is impossible to write a procedure ~halts?~ that correctly determines whether ~p~ halts on ~a~ for any procedure ~p~ and object ~a~.  Use the following reasoning: If you had such a procedure ~halts?~, you could implement the following program:
+
+          (define (run-forever) (run-forever))
+
+          (define (try p)
+            (if (halts? p p)
+                (run-forever)
+                'halted))
+
+Now consider evaluating the expression ~(try try)~ and show that any possible outcome (either halting or running forever) violates the intended behavior of ~halts?~.(5)
