@@ -584,7 +584,7 @@ or must we explicitly expand ~let*~ in terms of non-derived expressions?
 #+NAME: let_plus
 #+begin_src scheme
   (define (make-let var-exps body)
-    (list 'let var-exps body))
+    (cons 'let (cons var-exps body)))
 
   (define (let*->nested-lets exp)
     (define (expand-let-clauses var-exps)
@@ -772,7 +772,7 @@ Later we'll describe ~apply-primitive-procedure~ and ~primitive-procedure?~.
 #+NAME: procedures
 #+begin_src scheme
   (define (make-procedure parameters body env)
-    (list 'procedure parameters body env))
+    (list 'procedure parameters (scan-out-defines body) env))
 
   (define (compound-procedure? p)
     (tagged-list? p 'procedure))
@@ -819,20 +819,20 @@ To extend an environment by a new frame, we make a frame of the list of variable
             (error "Too many arguments supplied" vars vals)
             (error "Too few arguments supplied" vars vals))))
 
-  (define (lookup-variable-value var env)
-    (define (env-loop env)
-      (define (scan vars vals)
-        (cond ((null? vars)
-               (env-loop (enclosing-environment env)))
-              ((eq? var (car vars))
-               (car vals))
-              (else (scan (cdr vars) (cdr vals)))))
-      (if (eq? env the-empty-environment)
-          (error "Unbound variable" var)
-          (let ((frame (first-frame env)))
-            (scan (frame-variables frame)
-                  (frame-values frame)))))
-    (env-loop env))
+  ;; (define (lookup-variable-value var env)
+  ;;   (define (env-loop env)
+  ;;     (define (scan vars vals)
+  ;;       (cond ((null? vars)
+  ;;              (env-loop (enclosing-environment env)))
+  ;;             ((eq? var (car vars))
+  ;;              (car vals))
+  ;;             (else (scan (cdr vars) (cdr vals)))))
+  ;;     (if (eq? env the-empty-environment)
+  ;;         (error "Unbound variable" var)
+  ;;         (let ((frame (first-frame env)))
+  ;;           (scan (frame-variables frame)
+  ;;                 (frame-values frame)))))
+  ;;   (env-loop env))
 
   (define (set-variable-value! var val env)
     (define (env-loop env)
@@ -1057,19 +1057,180 @@ To run the evaluator we just initialize the global environment and start the loo
   <<apply>>
   <<eval_dispatch>>
   <<driver_loop>>
+  <<lookup_variable_value>>
+  <<scan_out_defines>>
 #+end_src
 
 *Exercise 4.14*. Eva Lu Ator and Louis Reasoner are each experimenting with the metacircular evaluator.  Eva types in the definition of ~map~, and runs some test programs that use it. They work fine.  Louis, in contrast, has installed the system version of ~map~ as a primitive for the metacircular evaluator. When he tries it, things go terribly wrong.  Explain why Louis's ~map~ fails even though Eva's works.
 
 The underlying Lisp ~map~ takes as its function arguments a function of the underlying Lisp type. So it may work with functions that themselves are primitives, but for non-primitives, it will essentially be getting something else (a list representing a function in the implemented Lisp, )
-
+** 4.1.5 Data as Programs
 *Exercise 4.15*. Given a one-argument procedure ~p~ and an object ~a~, ~p~ is said to "halt" on ~a~ if evaluating the expression ~(p a)~ returns a value (as opposed to terminating with an error message or running forever).  Show that it is impossible to write a procedure ~halts?~ that correctly determines whether ~p~ halts on ~a~ for any procedure ~p~ and object ~a~.  Use the following reasoning: If you had such a procedure ~halts?~, you could implement the following program:
 
-          (define (run-forever) (run-forever))
+#+begin_src scheme
+  (define (run-forever) (run-forever))
 
-          (define (try p)
-            (if (halts? p p)
-                (run-forever)
-                'halted))
+  (define (try p)
+    (if (halts? p p)
+        (run-forever)
+        'halted))
+#+end_src
 
-Now consider evaluating the expression ~(try try)~ and show that any possible outcome (either halting or running forever) violates the intended behavior of ~halts?~.(5)
+Now consider evaluating the expression ~(try try)~ and show that any possible outcome (either halting or running forever) violates the intended behavior of ~halts?~.
+
+  * if we run ~(try try)~ and it halts, then it implies one of either of the consequents of the ~if~ expression ran (because we're assuming an error was not possible). If it's 'halted, that implies ~(halts? try try)~ was false, which means ~halts?~ doesn't do what we said it does. And it can't be ~(run-forever)~ because that itself doesn't halt.
+  * if we run ~(try try)~ and it doesn't halt (which we'll never really know in fact if it does), then it implies the consequent of the ~if~ expression could not have been 'halted, so ~(halts? p p)~ must have been true, which again implies ~halts?~ doesn't do what it says it does.
+** 4.1.6 Internal Definitions
+We want to treat internal definitions as having simultaneous scope, e.g.
+
+#+begin_src scheme
+  (define (f x)
+    (define (even? n)
+      (if (= n 0)
+          true
+          (odd? (- n 1))))
+    (define (odd? n)
+      (if (= n 0)
+          false
+          (even? (- n 1))))
+    <REST OF BODY OF `F'>)
+#+end_src
+
+It shouldn't matter if the <REST OF BODY> comes before, after or in between ~odd?~ and ~even~. We can do this by "scanning out" and eliminating internal definitions in the body. So:
+
+#+begin_src scheme
+  (lambda <VARS>
+    (define u <E1>)
+    (define v <E2>)
+    <E3>)
+#+end_src
+
+becomes:
+
+#+begin_src scheme
+  (lambda <VARS>
+    (let ((u '*unassigned*)
+          (v '*unassigned*))
+      (set! u <E1>)
+      (set! v <E2>)
+      <E3>))
+#+end_src
+
+*Exercise 4.16*. In this exercise we implement the method just described for interpreting internal definitions.  We assume that the evaluator supports ~let~ (see *Note Exercise 4-6::).
+
+a. Change ~lookup-variable-value~ (section *Note 4-1-3::) to signal an error if the value it finds is the symbol ~*unassigned*~.
+
+#+NAME: lookup_variable_value
+#+begin_src scheme
+  (define (lookup-variable-value var env)
+      (define (env-loop env)
+        (define (scan vars vals)
+          (cond ((null? vars)
+                 (env-loop (enclosing-environment env)))
+                ((eq? var (car vars))
+                 (if (unassigned? (car vals))
+                     (error "Variable unassigned" var)
+                     (car vals)))
+                (else (scan (cdr vars) (cdr vals)))))
+        (if (eq? env the-empty-environment)
+            (error "Unbound variable" var)
+            (let ((frame (first-frame env)))
+              (scan (frame-variables frame)
+                    (frame-values frame)))))
+      (env-loop env))
+
+  (define (unassigned? val) (eq? val '*unassigned*))
+#+end_src
+
+b. Write a procedure ~scan-out-defines~ that takes a procedure body and returns an equivalent one that has no internal definitions, by making the transformation described above.
+
+#+NAME: scan_out_defines
+#+begin_src scheme
+  (define (make-assignment var exp) (list 'set! var exp))
+
+  (define (scan-out-defines body)
+    (define (scan exps defs non-defs)
+      (cond ((null? exps) (cons (reverse defs) (reverse non-defs)))
+            ((definition? (car exps))
+             (scan (cdr exps) (cons (car exps) defs) non-defs ))
+            (else
+             (scan (cdr exps) defs (cons (car exps) non-defs)))))
+    (define (make-bindings def-exp)
+      (list (definition-variable def-exp) '(quote *unassigned*)))
+    (define (make-assign def-exp)
+      (make-assignment (definition-variable def-exp)
+                       (definition-value def-exp)))
+    ;; scan => (defs non-defs)
+    (let ((split-defines (scan body '() '())))
+      (let ((defs (car split-defines))
+            (non-defs (cdr split-defines)))
+        (if (null? defs)
+            body
+            (list (make-let
+                    (map make-bindings defs)
+                    (append (map make-assign defs) non-defs)))))))
+#+end_src
+
+c. Install ~scan-out-defines~ in the interpreter, either in ~make-procedure~ or in ~procedure-body~ (see section 4-1-3::).  Which place is better?  Why?
+
+  * ~procedure-body~ is called when we apply a procedure, each time, whereas ~make-procedure~ is called when we are evaluating a lambda, before it is applied.
+  * I think calling it in ~make-procedure~, i.e. when the procedure is first encountered, would result in fewer calls to ~scan-out-defines~.
+    * Say for example if the same procedure is being applied multiple times as in a ~map~ or ~filter~.
+
+*Exercise 4.17*. Draw diagrams of the environment in effect when evaluating the expression <E3> in the procedure in the text, comparing how this will be structured when definitions are interpreted sequentially with how it will be structured if definitions are scanned out as described.  Why is there an extra frame in the transformed program?  Explain why this difference in environment structure can never make a difference in the behavior of a correct program.  Design a way to make the interpreter implement the "simultaneous" scope rule for internal definitions without constructing the extra frame.
+
+  * The ~let~ statement is transformed into a ~lambda~, which when it is applied extends the environment with an additional frame containing its arguments ~u~ and ~v~.
+  * This new environment is enclosed by the previous environment, so all names and their values are still accessible.
+  * We could add the argument variables ~u~ and ~v~ to the existing environment instead, and ensure the ~set!~ statements are evaluated first in the body.
+
+*Exercise 4.18*. Consider an alternative strategy for scanning out definitions that translates the example in the text to
+
+#+begin_src scheme
+  (lambda <VARS>
+    (let ((u '*unassigned*)
+          (v '*unassigned*))
+      (let ((a <E1>)
+            (b <E2>))
+        (set! u a)
+        (set! v b))
+      <E3>))
+#+end_src
+
+
+Here ~a~ and ~b~ are meant to represent new variable names, created by the interpreter, that do not appear in the user's program. Consider the ~solve~ procedure from section *Note 3-5-4:::
+
+#+begin_src scheme
+  (define (solve f y0 dt)
+    (define y (integral (delay dy) y0 dt))
+    (define dy (stream-map f y))
+    y)
+#+end_src
+
+Will this procedure work if internal definitions are scanned out as shown in this exercise?  What if they are scanned out as shown in the text?  Explain.
+
+In this exercise:
+
+#+begin_src scheme
+(lambda (f y0 dt)
+  (let ((y '*unassigned*)
+        (dy '*unassigned))
+    (let ((a (integral (delay dy) y0 dt))
+          (b (stream-map f y)))
+      (set! y a)
+      (set! dy b))
+    y))
+#+end_src
+
+In the text:
+
+#+begin_src scheme
+(lambda (f y0 dt)
+  (let ((y '*unassigned*)
+        (dy '*unassigned))
+    (set! y (integral (delay dy) y0 dt))
+    (set! dy (stream-map f y))
+    y))
+#+end_src
+
+  * I don't think this will work, because ~(stream-map f y)~ contains a non-delayed reference to y, which is not defined at the point in the assignment where it is assigned to ~b~.
+  * The text scanning should work ok! (TODO: give better reason)

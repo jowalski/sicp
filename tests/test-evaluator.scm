@@ -1,4 +1,4 @@
-(test-begin "evaluator" 27)
+(test-begin "evaluator" 29)
 
 ;; evaluate one expression, always blank environment
 (define (evalg expr) (eval expr (setup-environment)))
@@ -12,6 +12,7 @@
         (evalg-iter env (eval (car expr-l) env) (cdr expr-l)))))
 
 ;; test the global environment?
+
 
 ;; primitives
 (test-equal "primitive: car"
@@ -54,6 +55,11 @@
   5 (evalg '((lambda (x) x) 5)))
 (test-equal "compound lambda"
   'b (evalg '((lambda (x) (car (cdr x))) '(a b))))
+(test-equal "internal define, out of order"
+  '() (evalg '((lambda (x)
+                 (define (inc y) (cons y '()))
+                 (set! x (sub2 (inc x)))
+                 (define (sub2 z) (car (car z))) x) '(()))))
 
 ;; derived expressions
 (test-equal "cond standard expression, first true"
@@ -90,5 +96,9 @@
 
 ;; test the loop somehow
 
+;; test syntax
+(test-equal "scan out defines in procedure body"
+  '((let ((x (quote *unassigned*)) (y (quote *unassigned*))) (set! x 1) (set! y 3) (+ x y)))
+  (scan-out-defines '((define x 1) (+ x y) (define y 3))))
 
 (test-end)
