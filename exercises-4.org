@@ -246,7 +246,7 @@ Below is the specification of the syntax of the language:
   (define (rest-operands ops) (cdr ops))
 #+end_src
 
-*** Derived expressions
+***** Derived expressions
 We define ~cond~ in terms of other special forms, rather than creating another special form.
 
 #+NAME: cond
@@ -752,9 +752,9 @@ The equivalent (I think) would be:
   * we could rename the special forms, change the order of arguments to each form
   * not sure what else we could easily do???
 
-** 4.1.3 Evaluator Data Structures
+**** 4.1.3 Evaluator Data Structures
 We also need to implement the internal data structures that the evaluator manipulates.
-*** Testing of predicates
+***** Testing of predicates
 For conditionals, anything is true that isn't the explicit ~false~ object.
 
 #+NAME: bool
@@ -765,7 +765,7 @@ For conditionals, anything is true that isn't the explicit ~false~ object.
   (define (false? x)
     (eq? x #f))
 #+end_src
-*** Representing procedures
+***** Representing procedures
 
 Later we'll describe ~apply-primitive-procedure~ and ~primitive-procedure?~.
 
@@ -783,7 +783,7 @@ Later we'll describe ~apply-primitive-procedure~ and ~primitive-procedure?~.
 
   (define (procedure-environment p) (cadddr p))
 #+end_src
-*** Operations on Environments
+***** Operations on Environments
 To manipulate environments we need ~lookup-variable-value~, ~extend-environment~, ~define-variable!~ and ~set-variable-value!~.
 
 We'll represent an environment as a list of frames.
@@ -1213,7 +1213,7 @@ In this exercise:
 #+begin_src scheme
 (lambda (f y0 dt)
   (let ((y '*unassigned*)
-        (dy '*unassigned))
+        (dy '*unassigned*))
     (let ((a (integral (delay dy) y0 dt))
           (b (stream-map f y)))
       (set! y a)
@@ -1226,7 +1226,7 @@ In the text:
 #+begin_src scheme
 (lambda (f y0 dt)
   (let ((y '*unassigned*)
-        (dy '*unassigned))
+        (dy '*unassigned*))
     (set! y (integral (delay dy) y0 dt))
     (set! dy (stream-map f y))
     y))
@@ -1234,3 +1234,35 @@ In the text:
 
   * I don't think this will work, because ~(stream-map f y)~ contains a non-delayed reference to y, which is not defined at the point in the assignment where it is assigned to ~b~.
   * The text scanning should work ok! (TODO: give better reason)
+
+*Exercise 4.19*. Ben Bitdiddle, Alyssa P. Hacker, and Eva Lu Ator are arguing about the desired result of evaluating the expression
+
+#+begin_src scheme
+  (let ((a 1))
+    (define (f x)
+      (define b (+ a x))
+      (define a 5)
+      (+ a b))
+    (f 10))
+#+end_src
+
+Ben asserts that the result should be obtained using the sequential rule for ~define~: ~b~ is defined to be 11, then ~a~ is defined to be 5, so the result is 16.  Alyssa objects that mutual recursion requires the simultaneous scope rule for internal procedure definitions, and that it is unreasonable to treat procedure names differently from other names.  Thus, she argues for the mechanism implemented in *Note Exercise 4-16::.  This would lead to ~a~ being unassigned at the time that the value for ~b~ is to be computed.  Hence, in Alyssa's view the procedure should produce an error.  Eva has a third opinion.  She says that if the definitions of ~a~ and ~b~ are truly meant to be simultaneous, then the value 5 for ~a~ should be used in evaluating ~b~.  Hence, in Eva's view ~a~ should be 5, ~b~ should be 15, and the result should be 20.  Which (if any) of these viewpoints do you support?  Can you devise a way to implement internal definitions so that they behave as Eva prefers?(3)
+
+  * Eva's is most consistent with the idea of simultaneous scope. (And guile seems to implement her option, btw, unlike MIT I guess.)
+  *
+
+#+begin_src scheme
+  (let ((a 1))
+    (define (f x)
+      (let ((b '*unassigned*)
+            (a '*unassigned*))
+        (set! b (lambda () (+ a x)))
+        (set! f-a (lambda () 5))
+        (+ a b)
+        )
+
+      (define b (+ a x))
+      (define a 5)
+      )
+    (f 10))
+#+end_src
